@@ -4,6 +4,15 @@ pluginManagement {
         gradlePluginPortal()
         mavenCentral()
     }
+    // Centralizing versions here (rather than in the root build.gradle.kts with apply
+    // false) means resolution only happens when a project actually applies the plugin.
+    // :core never applies the Android ones, so a sandbox without SDK/google() access
+    // (like this one) can still configure and test :core standalone.
+    plugins {
+        id("org.jetbrains.kotlin.jvm") version "2.0.20"
+        id("org.jetbrains.kotlin.android") version "2.0.20"
+        id("com.android.application") version "8.5.2"
+    }
 }
 
 dependencyResolutionManagement {
