@@ -1,35 +1,52 @@
 package ir.gwent.android.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,10 +60,35 @@ import ir.gwent.core.model.Faction
 import ir.gwent.core.model.GameState
 import ir.gwent.core.model.Row as GwentRow
 import ir.gwent.core.model.Side
+import kotlinx.coroutines.delay
 
 private val HUMAN = Side.A
 private val AI = Side.B
 private val ROW_ORDER_TOP_DOWN = listOf(GwentRow.SIEGE, GwentRow.RANGED, GwentRow.MELEE)
+
+@Composable
+private fun ArmyTotal(total: Int, leading: Boolean, modifier: Modifier = Modifier) {
+    val shown by animateIntAsState(targetValue = total, animationSpec = tween(420), label = "total")
+    Box(
+        modifier = modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(
+                if (leading) Brush.radialGradient(listOf(Color(0xFFFFE9AE), Color(0xFFB4841E)))
+                else Brush.radialGradient(listOf(Color(0xFF39424F), Color(0xFF191E27)))
+            )
+            .border(2.dp, if (leading) MetalGold else MetalSilver, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = shown.toString(),
+            color = if (leading) Color(0xFF14181F) else GoldText,
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 19.sp,
+        )
+    }
+}
 
 @Composable
 fun RowSlot(
@@ -58,32 +100,70 @@ fun RowSlot(
     onCardTap: ((GwentCard) -> Unit)? = null,
 ) {
     val weathered = row in state.weatheredRows
-    Row(
+    val targeting = selectableTargets.isNotEmpty() && onCardTap != null
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(RowSlotBackground, RoundedCornerShape(8.dp))
-            .padding(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .height(96.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        if (targeting) RowSlotLit else RowSlotBackground,
+                        if (weathered) Color(0xFF16222E) else RowSlotBackground,
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                if (targeting) GoldDeep else Color(0xFF232B38),
+                RoundedCornerShape(8.dp),
+            ),
     ) {
-        Column(modifier = Modifier.width(56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(row.name.take(5), color = MutedText, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            Text(totalPower.toString(), color = GoldText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            if (weathered) Chip("STORM", WeatherTint)
-        }
-        Spacer(modifier = Modifier.width(6.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(cards) { card ->
-                val selectable = card.id in selectableTargets
-                CardView(
-                    card = card,
-                    displayPower = GameEngine.effectivePower(state, card, row, cards),
-                    selected = selectable,
-                    dimmed = selectableTargets.isNotEmpty() && !selectable && onCardTap != null,
-                    onClick = if (onCardTap != null && (selectableTargets.isEmpty() || selectable)) {
-                        { onCardTap(card) }
-                    } else null,
+        Row(modifier = Modifier.fillMaxSize().padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier.width(44.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                RowGlyph(
+                    row = row,
+                    tint = if (weathered) FrostTint else Color(0xFF6E7A8C),
+                    modifier = Modifier.size(19.dp),
+                )
+                Text(
+                    text = totalPower.toString(),
+                    color = GoldText,
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(cards) { card ->
+                    val selectable = card.id in selectableTargets
+                    CardView(
+                        card = card,
+                        displayPower = GameEngine.effectivePower(state, card, row, cards),
+                        selected = selectable,
+                        dimmed = targeting && !selectable,
+                        weathered = weathered && !card.isHero,
+                        width = 60.dp,
+                        height = 84.dp,
+                        onClick = if (onCardTap != null && (selectableTargets.isEmpty() || selectable)) {
+                            { onCardTap(card) }
+                        } else null,
+                    )
+                }
+            }
+        }
+
+        if (weathered) {
+            WeatherOverlay(row = row, modifier = Modifier.fillMaxSize())
         }
     }
 }
@@ -105,6 +185,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     }
 
     fun play(cardId: String, target: PlayTarget?) {
+        message = null
         GameEngine.playCard(state, HUMAN, cardId, target)
         runAiIfNeeded()
         tick++
@@ -115,11 +196,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
         when (card.ability) {
             Ability.DECOY -> {
                 val hasTarget = GwentRow.entries.any { r -> state.playerA.board.getValue(r).any { !it.isHero } }
-                if (hasTarget) {
-                    pendingCard = card
-                } else {
-                    message = "No eligible unit on your board to swap with Decoy."
-                }
+                if (hasTarget) pendingCard = card else message = "No unit on your board to swap with Decoy."
             }
             Ability.MEDIC -> {
                 if (state.playerA.discard.isNotEmpty()) pendingCard = card else play(card.id, null)
@@ -135,126 +212,274 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
         GwentRow.entries.flatMap { state.playerA.board.getValue(it) }.filter { !it.isHero }.map { it.id }.toSet()
     } else emptySet()
 
-    Box(modifier = Modifier.fillMaxSize().background(BoardBackground)) {
-    // Six row slots plus hand and controls overflow a phone screen, so the board scrolls.
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp)) {
-        // Header: round + score.
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Round ${state.round.coerceAtMost(3)}", color = GoldText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                SmallStat("YOU", "${state.playerA.roundsWon}")
-                SmallStat("AI", "${state.playerB.roundsWon}")
+    val playerTotal = GameEngine.totalPower(state, Side.A)
+    val aiTotal = GameEngine.totalPower(state, Side.B)
+    val yourTurn = state.turn == HUMAN && state.matchWinner == null
+
+    var showRoundBanner by remember { mutableStateOf(false) }
+    LaunchedEffect(state, state.round) {
+        showRoundBanner = true
+        delay(1400)
+        showRoundBanner = false
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Ink, BoardMid, Ink)))
+            .vignette(),
+    ) {
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp)) {
+            // ---- Header ----
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(factionLabel(aiFaction), style = SectionTitle)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 3.dp)) {
+                        RoundPip(state.playerB.roundsWon >= 1)
+                        RoundPip(state.playerB.roundsWon >= 2)
+                    }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("ROUND ${state.round.coerceAtMost(3)}", color = MutedText, fontSize = 10.sp, letterSpacing = 2.sp)
+                    Text(
+                        text = if (state.matchWinner != null) "—" else if (yourTurn) "YOUR MOVE" else "OPPONENT",
+                        color = if (yourTurn) GoldLight else MutedText,
+                        fontFamily = FontFamily.Serif,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                    )
+                }
+                TextButton(onClick = onExit) { Text("Exit", color = MutedText, fontSize = 12.sp) }
             }
-            TextButton(onClick = onExit) { Text("Exit") }
-        }
-        Spacer(modifier = Modifier.height(6.dp))
 
-        // Opponent panel.
-        Text("${factionLabel(aiFaction)} — hand ${state.playerB.hand.size} · deck ${state.playerB.deck.size} · discard ${state.playerB.discard.size}", color = MutedText, fontSize = 11.sp)
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-            ROW_ORDER_TOP_DOWN.forEach { row ->
-                RowSlot(row, state.playerB.board.getValue(row), state, GameEngine.rowPower(state, Side.B, row))
+            ThinRule(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
+
+            // ---- Opponent ----
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                ArmyTotal(total = aiTotal, leading = aiTotal > playerTotal)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        val backs = state.playerB.hand.size.coerceAtMost(8)
+                        repeat(backs) { CardBack(width = 15.dp, height = 21.dp) }
+                    }
+                    Text(
+                        "hand ${state.playerB.hand.size} · deck ${state.playerB.deck.size} · grave ${state.playerB.discard.size}",
+                        color = MutedText,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ROW_ORDER_TOP_DOWN.forEach { row ->
+                    RowSlot(row, state.playerB.board.getValue(row), state, GameEngine.rowPower(state, Side.B, row))
+                }
+            }
+
+            OrnateDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // ---- Player ----
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ROW_ORDER_TOP_DOWN.reversed().forEach { row ->
+                    RowSlot(
+                        row = row,
+                        cards = state.playerA.board.getValue(row),
+                        state = state,
+                        totalPower = GameEngine.rowPower(state, Side.A, row),
+                        selectableTargets = decoyTargets,
+                        onCardTap = if (pendingCard?.ability == Ability.DECOY) {
+                            { target -> play(pendingCard!!.id, PlayTarget.DecoyTarget(target.id)); pendingCard = null }
+                        } else null,
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ArmyTotal(total = playerTotal, leading = playerTotal > aiTotal)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(factionLabel(playerFaction), style = SectionTitle)
+                        Text(
+                            "deck ${state.playerA.deck.size} · grave ${state.playerA.discard.size}",
+                            color = MutedText,
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    RoundPip(state.playerA.roundsWon >= 1)
+                    RoundPip(state.playerA.roundsWon >= 2)
+                }
+            }
+
+            message?.let {
+                Text(it, color = DangerRed, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+
+            ThinRule(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+
+            // ---- Hand ----
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(state.playerA.hand) { card ->
+                    val isPending = pendingCard?.id == card.id
+                    val lift by animateDpAsState(
+                        targetValue = if (isPending) (-10).dp else 0.dp,
+                        animationSpec = tween(180),
+                        label = "lift",
+                    )
+                    CardView(
+                        card = card,
+                        selected = isPending,
+                        dimmed = !yourTurn,
+                        modifier = Modifier.offset(y = lift),
+                        onClick = if (yourTurn && pendingCard == null) {
+                            { onHandCardTap(card) }
+                        } else null,
+                    )
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+            ) {
+                Button(
+                    onClick = { message = null; GameEngine.pass(state, HUMAN); runAiIfNeeded(); tick++ },
+                    enabled = yourTurn,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2A3140),
+                        contentColor = GoldLight,
+                        disabledContainerColor = Color(0xFF1A1F29),
+                        disabledContentColor = MutedText,
+                    ),
+                ) { Text("Pass round", fontFamily = FontFamily.Serif, letterSpacing = 1.sp) }
+                OutlinedButton(
+                    onClick = {
+                        state = GameEngine.newMatch(playerFaction, aiFaction)
+                        pendingCard = null
+                        message = null
+                        tick++
+                    },
+                ) { Text("New match", color = MutedText) }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline))
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Player panel (mirrored: melee nearest the middle).
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            ROW_ORDER_TOP_DOWN.reversed().forEach { row ->
-                RowSlot(
-                    row,
-                    state.playerA.board.getValue(row),
-                    state,
-                    GameEngine.rowPower(state, Side.A, row),
-                    selectableTargets = decoyTargets,
-                    onCardTap = if (pendingCard?.ability == Ability.DECOY) {
-                        { target -> play(pendingCard!!.id, PlayTarget.DecoyTarget(target.id)); pendingCard = null }
-                    } else null,
-                )
-            }
-        }
-        Text("${factionLabel(playerFaction)} (you) — deck ${state.playerA.deck.size} · discard ${state.playerA.discard.size}", color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
-
-        message?.let {
-            Text(it, color = Color(0xFFE87A5D), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Your hand", color = MutedText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-            items(state.playerA.hand) { card ->
-                CardView(
-                    card = card,
-                    selected = pendingCard?.id == card.id,
-                    onClick = if (state.turn == HUMAN && state.matchWinner == null && pendingCard == null) {
-                        { onHandCardTap(card) }
-                    } else null,
-                )
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-            Button(
-                onClick = { GameEngine.pass(state, HUMAN); runAiIfNeeded(); tick++ },
-                enabled = state.turn == HUMAN && state.matchWinner == null,
-            ) { Text("Pass") }
-            OutlinedButton(onClick = {
-                state = GameEngine.newMatch(playerFaction, aiFaction)
-                pendingCard = null
-                tick++
-            }) { Text("New match") }
-        }
-
-        state.matchWinner?.let {
-            Text(
-                text = when (it) {
-                    Side.A -> "You win!"
-                    Side.B -> "AI wins."
-                },
-                color = GoldText,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-    } // Column
-
-    if (pendingCard?.ability == Ability.DECOY) {
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(PanelBackground)
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+        // ---- Decoy targeting prompt ----
+        AnimatedVisibility(
+            visible = pendingCard?.ability == Ability.DECOY,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            Text("Choose a unit on your board to swap back to hand", color = GoldText, fontSize = 12.sp)
-            TextButton(onClick = { pendingCard = null }) { Text("Cancel") }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color(0xCC0B0E14), Color(0xFF0B0E14))))
+                    .border(1.dp, GoldDeep)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Choose a unit to pull back to your hand", color = GoldLight, fontFamily = FontFamily.Serif, fontSize = 13.sp)
+                TextButton(onClick = { pendingCard = null }) { Text("Cancel", color = MutedText) }
+            }
+        }
+
+        // ---- Round banner ----
+        AnimatedVisibility(
+            visible = showRoundBanner && state.matchWinner == null,
+            enter = fadeIn(tween(350)) + scaleIn(tween(450), initialScale = 0.85f),
+            exit = fadeOut(tween(350)) + scaleOut(tween(350), targetScale = 1.1f),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("ROUND ${state.round.coerceAtMost(3)}", style = BannerText)
+                ThinRule(modifier = Modifier.width(200.dp).padding(top = 6.dp))
+            }
+        }
+
+        // ---- Match result ----
+        state.matchWinner?.let { winner ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.radialGradient(listOf(Color(0xE60B0E14), Color(0xF505070A)))),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (winner == Side.A) "VICTORY" else "DEFEAT",
+                        style = BannerText,
+                        color = if (winner == Side.A) GoldLight else DangerRed,
+                    )
+                    ThinRule(modifier = Modifier.width(220.dp).padding(vertical = 10.dp))
+                    Text(
+                        text = "${state.playerA.roundsWon} — ${state.playerB.roundsWon}",
+                        color = MutedText,
+                        fontFamily = FontFamily.Serif,
+                        fontSize = 20.sp,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 18.dp)) {
+                        Button(
+                            onClick = {
+                                state = GameEngine.newMatch(playerFaction, aiFaction)
+                                pendingCard = null
+                                message = null
+                                tick++
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A3140), contentColor = GoldLight),
+                        ) { Text("Rematch", fontFamily = FontFamily.Serif) }
+                        OutlinedButton(onClick = onExit) { Text("Change deck", color = MutedText) }
+                    }
+                }
+            }
         }
     }
-    } // Box
 
     if (pendingCard?.ability == Ability.MEDIC) {
         val medic = pendingCard!!
         AlertDialog(
             onDismissRequest = { pendingCard = null },
-            title = { Text("Revive a card with ${medic.name}?") },
+            containerColor = PanelBackground,
+            title = { Text("Raise a fallen card", style = SectionTitle) },
             text = {
                 Column {
+                    Text(
+                        "${medic.name} can return one card from your graveyard.",
+                        color = MutedText,
+                        fontSize = 12.sp,
+                    )
                     state.playerA.discard.forEach { c ->
                         TextButton(onClick = {
                             play(medic.id, PlayTarget.MedicRevive(c.id))
                             pendingCard = null
-                        }) { Text("${c.name} (${c.basePower})") }
+                        }) {
+                            Text("${c.name}  ·  ${c.basePower}", color = GoldText, fontFamily = FontFamily.Serif)
+                        }
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { play(medic.id, PlayTarget.MedicRevive(null)); pendingCard = null }) { Text("Skip revive") }
+                TextButton(onClick = { play(medic.id, PlayTarget.MedicRevive(null)); pendingCard = null }) {
+                    Text("Skip", color = MutedText)
+                }
             },
         )
     }
