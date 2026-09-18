@@ -7,7 +7,9 @@ fun Side.other(): Side = if (this == Side.A) Side.B else Side.A
 data class PlayerState(
     val side: Side,
     val faction: Faction,
-    val hand: MutableList<Card>,
+    val deck: MutableList<Card>,
+    val hand: MutableList<Card> = mutableListOf(),
+    val discard: MutableList<Card> = mutableListOf(),
     val board: MutableMap<Row, MutableList<Card>> =
         Row.entries.associateWith { mutableListOf<Card>() }.toMutableMap(),
     var roundsWon: Int = 0,
@@ -22,6 +24,9 @@ class GameState(val playerA: PlayerState, val playerB: PlayerState) {
     var starter: Side = Side.A
     var matchWinner: Side? = null
     val roundHistory: MutableList<RoundResult> = mutableListOf()
+
+    /** Rows currently debuffed by an active weather effect (shared by both players). */
+    val weatheredRows: MutableSet<Row> = mutableSetOf()
 
     fun player(side: Side): PlayerState = if (side == Side.A) playerA else playerB
 }

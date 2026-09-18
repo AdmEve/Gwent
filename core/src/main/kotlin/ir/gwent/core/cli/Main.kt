@@ -4,6 +4,8 @@ import ir.gwent.core.ai.Move
 import ir.gwent.core.ai.SimpleAi
 import ir.gwent.core.engine.GameEngine
 import ir.gwent.core.engine.GameEvent
+import ir.gwent.core.engine.PlayTarget
+import ir.gwent.core.model.Ability
 import ir.gwent.core.model.Card
 import ir.gwent.core.model.Faction
 import ir.gwent.core.model.GameState
@@ -14,7 +16,7 @@ private val HUMAN = Side.A
 private val AI = Side.B
 
 fun main() {
-    println("=== Gwent-e Shahnameh (prototype) ===")
+    println("=== Gwent-verse (prototype) ===")
     println("You play the Pahlavans. The AI plays the Div.")
     println()
 
@@ -50,24 +52,56 @@ private fun humanTurn(state: GameState): List<GameEvent> {
         println("Invalid input, try again.")
         return emptyList()
     }
-    return GameEngine.playCard(state, HUMAN, hand[idx - 1].id)
+    val card = hand[idx - 1]
+    val target = promptTarget(state, card)
+    return GameEngine.playCard(state, HUMAN, card.id, target)
+}
+
+private fun promptTarget(state: GameState, card: Card): PlayTarget? = when (card.ability) {
+    Ability.DECOY -> {
+        val candidates = Row.entries.flatMap { state.player(HUMAN).board.getValue(it) }.filter { !it.isHero }
+        if (candidates.isEmpty()) {
+            println("No eligible board card to swap; Decoy will be rejected.")
+            null
+        } else {
+            println("Choose a friendly unit to swap back to hand:")
+            candidates.forEachIndexed { i, c -> println("  ${i + 1}. ${describeCard(c)}") }
+            val idx = readlnOrNull()?.trim()?.toIntOrNull()
+            val chosen = idx?.let { candidates.getOrNull(it - 1) }
+            chosen?.let { PlayTarget.DecoyTarget(it.id) }
+        }
+    }
+    Ability.MEDIC -> {
+        val discard = state.player(HUMAN).discard
+        if (discard.isEmpty()) {
+            null
+        } else {
+            println("Choose a card to revive from discard (or blank to skip):")
+            discard.forEachIndexed { i, c -> println("  ${i + 1}. ${describeCard(c)}") }
+            val input = readlnOrNull()?.trim().orEmpty()
+            val idx = input.toIntOrNull()
+            PlayTarget.MedicRevive(idx?.let { discard.getOrNull(it - 1)?.id })
+        }
+    }
+    else -> null
 }
 
 private fun aiTurn(state: GameState): List<GameEvent> {
     return when (val move = SimpleAi.chooseMove(state, AI)) {
         is Move.Pass -> GameEngine.pass(state, AI)
-        is Move.PlayCard -> GameEngine.playCard(state, AI, move.cardId)
+        is Move.PlayCard -> GameEngine.playCard(state, AI, move.cardId, move.target)
     }
 }
 
 private fun printBoard(state: GameState) {
-    println("--- Round ${state.round} | You ${state.playerA.roundsWon} - ${state.playerB.roundsWon} AI ---")
+    val weather = if (state.weatheredRows.isEmpty()) "clear" else state.weatheredRows.joinToString(", ")
+    println("--- Round ${state.round} | You ${state.playerA.roundsWon} - ${state.playerB.roundsWon} AI | Weather: $weather ---")
     println("AI board:")
     Row.entries.forEach { row -> println("  $row: ${rowLine(state.playerB.board.getValue(row))} (total ${GameEngine.rowPower(state, Side.B, row)})") }
-    println("AI total: ${GameEngine.totalPower(state, Side.B)} | AI hand: ${state.playerB.hand.size} cards")
+    println("AI total: ${GameEngine.totalPower(state, Side.B)} | AI hand: ${state.playerB.hand.size} | deck: ${state.playerB.deck.size} | discard: ${state.playerB.discard.size}")
     println("Your board:")
     Row.entries.forEach { row -> println("  $row: ${rowLine(state.playerA.board.getValue(row))} (total ${GameEngine.rowPower(state, Side.A, row)})") }
-    println("Your total: ${GameEngine.totalPower(state, Side.A)}")
+    println("Your total: ${GameEngine.totalPower(state, Side.A)} | deck: ${state.playerA.deck.size} | discard: ${state.playerA.discard.size}")
 }
 
 private fun rowLine(cards: List<Card>): String =
@@ -76,11 +110,11 @@ private fun rowLine(cards: List<Card>): String =
 private fun describeCard(c: Card): String {
     val tag = when {
         c.isHero -> " [HERO]"
-        c.ability.name == "HORN" -> " [HORN]"
-        c.ability.name == "SCORCH" -> " [SCORCH]"
-        else -> ""
+        c.ability == Ability.NONE -> ""
+        else -> " [${c.ability}]"
     }
-    return "${c.name} (${c.row}, power ${c.basePower})$tag"
+    val power = if (c.ability == Ability.WEATHER || c.ability == Ability.CLEAR_WEATHER) "" else ", power ${c.basePower}"
+    return "${c.name} (${c.row}$power)$tag"
 }
 
 private fun printEvent(event: GameEvent) {
@@ -89,11 +123,17 @@ private fun printEvent(event: GameEvent) {
         is GameEvent.Scorched -> if (event.destroyed.isNotEmpty()) {
             println("Scorch destroyed: ${event.destroyed.joinToString(", ") { it.name }}")
         }
+        is GameEvent.WeatherChanged -> println("${event.row} is now under harsh weather (power capped at 1)")
+        is GameEvent.WeatherCleared -> println("Weather cleared")
+        is GameEvent.Decoyed -> println("${event.side} swapped ${event.returned.name} back to hand via ${event.decoy.name}")
+        is GameEvent.MedicRevived -> println("${event.side} revived ${event.revived.name} from discard")
+        is GameEvent.SpyInfiltrated -> println("${event.side} sent ${event.card.name} to spy on the enemy row, drawing ${event.cardsDrawn} cards")
         is GameEvent.Passed -> println("${event.side} passed")
         is GameEvent.RoundEnded -> println(
             "Round ${event.result.round} ended: You ${event.result.powerA} - ${event.result.powerB} AI. " +
                 "Winner: ${event.result.winner?.toString() ?: "draw"}"
         )
+        is GameEvent.RoundStarted -> println("Round ${event.round} begins")
         is GameEvent.MatchEnded -> {}
         is GameEvent.InvalidMove -> println("Invalid move: ${event.reason}")
     }
