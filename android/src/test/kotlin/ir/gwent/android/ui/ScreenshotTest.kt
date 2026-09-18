@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -29,7 +28,7 @@ import java.io.File
  * drawing code the device runs, so what lands in build/screenshots is the actual shipped UI,
  * not a mock-up.
  *
- * Output: android/build/screenshots/*.png, picked up by CI and attached to the release.
+ * Output: PNGs under android/build/screenshots, picked up by CI and attached to the release.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
