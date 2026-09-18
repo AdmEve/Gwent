@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import ir.gwent.android.GwentApp
 import ir.gwent.core.model.Faction
@@ -90,7 +91,7 @@ class UiSmokeTest {
         // turn loop ever hangs, this never returns and the test times out instead of passing.
         repeat(10) {
             if (exists("Pass round")) {
-                runCatching { compose.onNodeWithText("Pass round").performClick() }
+                runCatching { compose.onNodeWithText("Pass round").performScrollTo().performClick() }
                 compose.waitForIdle()
             }
         }
@@ -112,7 +113,7 @@ class UiSmokeTest {
         compose.waitForIdle()
 
         compose.onNodeWithText("Nick Fury").assertExists()
-        compose.onNodeWithText("Use").performClick()
+        compose.onNodeWithText("Use").performScrollTo().performClick()
         compose.waitForIdle()
 
         assertNothingWasCaught()
