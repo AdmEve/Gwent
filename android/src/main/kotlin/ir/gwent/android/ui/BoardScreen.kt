@@ -1,6 +1,8 @@
 package ir.gwent.android.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -134,7 +136,8 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     } else emptySet()
 
     Box(modifier = Modifier.fillMaxSize().background(BoardBackground)) {
-    Column(modifier = Modifier.fillMaxSize().padding(10.dp)) {
+    // Six row slots plus hand and controls overflow a phone screen, so the board scrolls.
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(10.dp)) {
         // Header: round + score.
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Round ${state.round.coerceAtMost(3)}", color = GoldText, fontWeight = FontWeight.Bold, fontSize = 18.sp)

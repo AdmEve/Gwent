@@ -3,14 +3,13 @@ package ir.gwent.android.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
@@ -49,22 +48,32 @@ fun FactionPickerScreen(onStart: (playerFaction: Faction, aiFaction: Faction) ->
     }
 }
 
+/**
+ * Plain rows rather than a LazyVerticalGrid: a lazy grid nested in a Column gets
+ * unbounded height constraints and throws at measure time, and with five factions
+ * there is nothing to virtualize anyway.
+ */
 @Composable
 private fun FactionGrid(selected: Faction?, onSelect: (Faction) -> Unit) {
-    LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxWidth()) {
-        items(Faction.entries) { faction ->
-            val accent = factionAccent(faction)
-            Column(
-                modifier = Modifier
-                    .padding(4.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (selected == faction) accent.copy(alpha = 0.25f) else PanelBackground)
-                    .border(2.dp, if (selected == faction) accent else PanelBackground, RoundedCornerShape(10.dp))
-                    .clickable { onSelect(faction) }
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(factionLabel(faction), color = accent, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Faction.entries.chunked(2).forEach { rowFactions ->
+            Row(modifier = Modifier.fillMaxWidth()) {
+                rowFactions.forEach { faction ->
+                    val accent = factionAccent(faction)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(4.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (selected == faction) accent.copy(alpha = 0.25f) else PanelBackground)
+                            .border(2.dp, if (selected == faction) accent else PanelBackground, RoundedCornerShape(10.dp))
+                            .clickable { onSelect(faction) }
+                            .padding(14.dp),
+                    ) {
+                        Text(factionLabel(faction), color = accent, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+                if (rowFactions.size == 1) Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
