@@ -30,6 +30,7 @@ class MatchSimulationTest {
             val move = SimpleAi.chooseMove(state, Side.B)
             val events = when (move) {
                 is Move.Pass -> GameEngine.pass(state, Side.B)
+                is Move.UseLeader -> GameEngine.useLeader(state, Side.B)
                 is Move.PlayCard -> GameEngine.playCard(state, Side.B, move.cardId, move.target)
             }
             val invalid = events.filterIsInstance<GameEvent.InvalidMove>()

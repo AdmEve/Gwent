@@ -48,6 +48,16 @@ is discarded at the end of every round. Card mechanics:
   pile to hand.
 - **Spy** — enters play on the *opponent's* board/row instead of your own;
   you draw two cards from your own deck as compensation.
+- **Tight Bond** — copies of the same unit in one row multiply each other:
+  two are worth double each, three are worth triple each.
+- **Muster** — playing one card calls every other copy of its group out of
+  your deck and hand at once.
+
+Before the match each player may swap up to two cards. Each army also has a
+**leader** with a once-per-match ability (it costs your turn, like playing a
+card) and a passive **trait**: draw on a won round, hold a unit over between
+rounds, win level rounds, always open the match, or recover a card from the
+graveyard in round three.
 
 ## Project structure
 
@@ -59,11 +69,19 @@ is discarded at the end of every round. Card mechanics:
   picks a move the engine rejects — the UI drives the AI in a loop on the main
   thread, so such a move is a frozen app.
 - `android/` — Jetpack Compose Android app (the actual APK target) that
-  wraps `core` in a real UI: faction picker, row-based board with weather/
-  power/ability indicators, hand, and target-selection flows for Decoy and
-  Medic. Requires the Android SDK to configure, so it's only included in the
+  wraps `core` in a real UI: faction picker, opening-hand redraw, row-based
+  board with weather/power/ability indicators, hand, leader ability, and
+  target-selection flows for Decoy and Medic. Requires the Android SDK to configure, so it's only included in the
   Gradle build when one is detected (`ANDROID_HOME` / `ANDROID_SDK_ROOT` set,
   or a `local.properties` file present) — e.g. when opened in Android Studio.
+
+## Card art
+
+Card illustrations are looked up by convention, so art can be added without
+touching code: a card with id `mar-iron-man` uses the drawable
+`card_mar_iron_man`. Drop files into `android/src/main/res/drawable/` (webp or
+png, portrait, roughly 2:3) and they replace the placeholder monogram panel
+automatically. Anything without art keeps the placeholder.
 
 ## Debugging without a device
 

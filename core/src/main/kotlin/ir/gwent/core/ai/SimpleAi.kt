@@ -5,12 +5,14 @@ import ir.gwent.core.engine.PlayTarget
 import ir.gwent.core.model.Ability
 import ir.gwent.core.model.Card
 import ir.gwent.core.model.GameState
+import ir.gwent.core.model.LeaderAbility
 import ir.gwent.core.model.Row
 import ir.gwent.core.model.Side
 import ir.gwent.core.model.other
 
 sealed class Move {
     data class PlayCard(val cardId: String, val target: PlayTarget? = null) : Move()
+    data object UseLeader : Move()
     data object Pass : Move()
 }
 
@@ -43,11 +45,32 @@ object SimpleAi {
             return validated(state, side, bestMove(state, side))
         }
 
+        if (shouldUseLeader(state, side)) return Move.UseLeader
+
         val comfortablyAhead = myTotal > oppTotal + 8
         if (comfortablyAhead && !lastStand && me.hand.size <= opp.hand.size && state.round < 3) {
             return Move.Pass
         }
         return validated(state, side, bestMove(state, side))
+    }
+
+    /** Spends the leader only when it actually does something worthwhile right now. */
+    private fun shouldUseLeader(state: GameState, side: Side): Boolean {
+        if (!GameEngine.canUseLeader(state, side)) return false
+        val me = state.player(side)
+        val enemy = state.player(side.other())
+        return when (me.leader.ability) {
+            LeaderAbility.CLEAR_ALL_WEATHER -> state.weatheredRows.any { row ->
+                GameEngine.rowPower(state, side, row) < GameEngine.rowPower(state, side.other(), row)
+            }
+            LeaderAbility.SCORCH_ENEMY_STRONGEST ->
+                Row.entries.flatMap { enemy.board.getValue(it) }.any { !it.isHero && it.basePower >= 5 }
+            LeaderAbility.DRAW_CARD -> me.deck.isNotEmpty() && me.hand.size <= enemy.hand.size
+            LeaderAbility.HORN_STRONGEST_ROW ->
+                Row.entries.maxOf { GameEngine.rowPower(state, side, it) } >= 8
+            LeaderAbility.WEATHER_ENEMY_STRONGEST_ROW ->
+                Row.entries.maxOf { GameEngine.rowPower(state, side.other(), it) } >= 10
+        }
     }
 
     /** Rough ceiling on how much power this hand could still add, used to decide whether to concede. */

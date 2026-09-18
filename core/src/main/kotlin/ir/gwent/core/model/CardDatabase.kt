@@ -31,6 +31,12 @@ object CardDatabase {
         Card("pah-zal", "Zal", Faction.PAHLAVAN, Row.SIEGE, 6, ability = Ability.MEDIC),
         Card("pah-manijeh", "Manijeh", Faction.PAHLAVAN, Row.SIEGE, 2, ability = Ability.DECOY),
 
+        Card("pah-guard-1", "Immortal Guard", Faction.PAHLAVAN, Row.MELEE, 3, bondGroup = "immortals"),
+        Card("pah-guard-2", "Immortal Guard", Faction.PAHLAVAN, Row.MELEE, 3, bondGroup = "immortals"),
+        Card("pah-guard-3", "Immortal Guard", Faction.PAHLAVAN, Row.MELEE, 3, bondGroup = "immortals"),
+        Card("pah-archer-1", "Royal Archer", Faction.PAHLAVAN, Row.RANGED, 2, musterGroup = "royal-archers"),
+        Card("pah-archer-2", "Royal Archer", Faction.PAHLAVAN, Row.RANGED, 2, musterGroup = "royal-archers"),
+
         Card("pah-blizzard", "Blizzard of Mazandaran", Faction.PAHLAVAN, Row.MELEE, ability = Ability.WEATHER),
         Card("pah-fog", "Fog of Mazandaran", Faction.PAHLAVAN, Row.RANGED, ability = Ability.WEATHER),
         Card("pah-flood", "Flood of the Kashaf River", Faction.PAHLAVAN, Row.SIEGE, ability = Ability.WEATHER),
@@ -57,6 +63,12 @@ object CardDatabase {
         Card("div-sork", "Sork Div", Faction.DIV, Row.RANGED, 5, ability = Ability.SPY),
         Card("div-ahriman", "Ahriman", Faction.DIV, Row.SIEGE, 5, ability = Ability.MEDIC),
         Card("div-nasnas", "Nasnas", Faction.DIV, Row.MELEE, 2, ability = Ability.DECOY),
+
+        Card("div-swarm-1", "Shadow Swarm", Faction.DIV, Row.MELEE, 3, bondGroup = "swarm"),
+        Card("div-swarm-2", "Shadow Swarm", Faction.DIV, Row.MELEE, 3, bondGroup = "swarm"),
+        Card("div-swarm-3", "Shadow Swarm", Faction.DIV, Row.MELEE, 3, bondGroup = "swarm"),
+        Card("div-imp-1", "Pit Imp", Faction.DIV, Row.SIEGE, 2, musterGroup = "pit-imps"),
+        Card("div-imp-2", "Pit Imp", Faction.DIV, Row.SIEGE, 2, musterGroup = "pit-imps"),
 
         Card("div-darkness", "Darkness of Mazandaran", Faction.DIV, Row.MELEE, ability = Ability.WEATHER),
         Card("div-plague-wind", "Plague Wind of Ahriman", Faction.DIV, Row.RANGED, ability = Ability.WEATHER),
@@ -85,6 +97,12 @@ object CardDatabase {
         Card("mar-scarlet-witch", "Scarlet Witch", Faction.MARVEL, Row.SIEGE, 5, ability = Ability.MEDIC),
         Card("mar-mysterio", "Mysterio", Faction.MARVEL, Row.MELEE, 2, ability = Ability.DECOY),
 
+        Card("mar-shield-1", "S.H.I.E.L.D. Agent", Faction.MARVEL, Row.RANGED, 3, bondGroup = "shield"),
+        Card("mar-shield-2", "S.H.I.E.L.D. Agent", Faction.MARVEL, Row.RANGED, 3, bondGroup = "shield"),
+        Card("mar-shield-3", "S.H.I.E.L.D. Agent", Faction.MARVEL, Row.RANGED, 3, bondGroup = "shield"),
+        Card("mar-ultron-1", "Ultron Sentry", Faction.MARVEL, Row.MELEE, 2, musterGroup = "sentries"),
+        Card("mar-ultron-2", "Ultron Sentry", Faction.MARVEL, Row.MELEE, 2, musterGroup = "sentries"),
+
         Card("mar-storm", "Storm", Faction.MARVEL, Row.MELEE, ability = Ability.WEATHER),
         Card("mar-sandman", "Sandman", Faction.MARVEL, Row.RANGED, ability = Ability.WEATHER),
         Card("mar-hydro-man", "Hydro-Man", Faction.MARVEL, Row.SIEGE, ability = Ability.WEATHER),
@@ -112,6 +130,12 @@ object CardDatabase {
         Card("op-chopper", "Tony Tony Chopper", Faction.ONE_PIECE, Row.MELEE, 3, ability = Ability.MEDIC),
         Card("op-buggy", "Buggy", Faction.ONE_PIECE, Row.MELEE, 2, ability = Ability.DECOY),
 
+        Card("op-straw-1", "Straw Hat Crewman", Faction.ONE_PIECE, Row.MELEE, 3, bondGroup = "straw-hats"),
+        Card("op-straw-2", "Straw Hat Crewman", Faction.ONE_PIECE, Row.MELEE, 3, bondGroup = "straw-hats"),
+        Card("op-straw-3", "Straw Hat Crewman", Faction.ONE_PIECE, Row.MELEE, 3, bondGroup = "straw-hats"),
+        Card("op-marine-1", "Marine", Faction.ONE_PIECE, Row.RANGED, 2, musterGroup = "marines"),
+        Card("op-marine-2", "Marine", Faction.ONE_PIECE, Row.RANGED, 2, musterGroup = "marines"),
+
         Card("op-nami", "Nami", Faction.ONE_PIECE, Row.MELEE, ability = Ability.WEATHER),
         Card("op-eneru", "Eneru", Faction.ONE_PIECE, Row.RANGED, ability = Ability.WEATHER),
         Card("op-crocodile", "Crocodile", Faction.ONE_PIECE, Row.SIEGE, ability = Ability.WEATHER),
@@ -138,6 +162,12 @@ object CardDatabase {
         Card("grk-hermes", "Hermes", Faction.GREEK_MYTH, Row.RANGED, 5, ability = Ability.SPY),
         Card("grk-asclepius", "Asclepius", Faction.GREEK_MYTH, Row.SIEGE, 5, ability = Ability.MEDIC),
         Card("grk-odysseus", "Odysseus", Faction.GREEK_MYTH, Row.MELEE, 3, ability = Ability.DECOY),
+
+        Card("grk-myrmidon-1", "Myrmidon", Faction.GREEK_MYTH, Row.MELEE, 3, bondGroup = "myrmidons"),
+        Card("grk-myrmidon-2", "Myrmidon", Faction.GREEK_MYTH, Row.MELEE, 3, bondGroup = "myrmidons"),
+        Card("grk-myrmidon-3", "Myrmidon", Faction.GREEK_MYTH, Row.MELEE, 3, bondGroup = "myrmidons"),
+        Card("grk-spartan-1", "Spartan Hoplite", Faction.GREEK_MYTH, Row.SIEGE, 2, musterGroup = "spartans"),
+        Card("grk-spartan-2", "Spartan Hoplite", Faction.GREEK_MYTH, Row.SIEGE, 2, musterGroup = "spartans"),
 
         Card("grk-boreas", "Boreas", Faction.GREEK_MYTH, Row.MELEE, ability = Ability.WEATHER),
         Card("grk-demeter", "Demeter", Faction.GREEK_MYTH, Row.RANGED, ability = Ability.WEATHER),

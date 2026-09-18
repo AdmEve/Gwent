@@ -195,18 +195,21 @@ class GameEngineTest {
     }
 
     @Test
-    fun `match ends after a player wins two rounds`() {
-        // B always passes immediately; A plays its highest-power playable card. A should sweep 2-0.
+    fun `a player who keeps winning rounds takes the match`() {
+        // A commits the smallest amount needed to lead, then banks the round; B never contests.
+        // With no draws between rounds, overcommitting would hand away later rounds.
         val state = testMatch()
         while (!state.matchOver) {
             if (state.turn == Side.A) {
-                // Decoy needs a target we're not supplying here, so skip it to avoid a stuck InvalidMove loop.
-                val card = state.player(Side.A).hand.filter { it.ability != Ability.DECOY }.maxByOrNull { it.basePower }
-                if (card != null) GameEngine.playCard(state, Side.A, card.id) else GameEngine.pass(state, Side.A)
+                val ahead = GameEngine.totalPower(state, Side.A) > GameEngine.totalPower(state, Side.B)
+                val card = state.playerA.hand.filter { it.ability == Ability.NONE }.maxByOrNull { it.basePower }
+                if (ahead || card == null) GameEngine.pass(state, Side.A)
+                else GameEngine.playCard(state, Side.A, card.id)
             } else {
                 GameEngine.pass(state, Side.B)
             }
         }
         assertEquals(Side.A, state.matchWinner)
+        assertTrue(state.matchOver)
     }
 }

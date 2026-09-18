@@ -41,4 +41,50 @@ data class Card(
     val basePower: Int = 0,
     val ability: Ability = Ability.NONE,
     val isHero: Boolean = false,
+    /**
+     * Tight Bond: units sharing a group multiply each other in the same row — two copies are
+     * worth double each, three are worth triple each.
+     */
+    val bondGroup: String? = null,
+    /**
+     * Muster: playing this card immediately calls every other card sharing the group out of
+     * the owner's deck and hand.
+     */
+    val musterGroup: String? = null,
 )
+
+/** A once-per-match ability, played instead of a card. */
+enum class LeaderAbility {
+    /** Clears every active weather effect. */
+    CLEAR_ALL_WEATHER,
+    /** Destroys the opponent's strongest non-hero unit. */
+    SCORCH_ENEMY_STRONGEST,
+    /** Draws a card from your own deck. */
+    DRAW_CARD,
+    /** Doubles your strongest row, as a Commander's Horn would. */
+    HORN_STRONGEST_ROW,
+    /** Brings harsh weather down on whichever enemy row is strongest. */
+    WEATHER_ENEMY_STRONGEST_ROW,
+}
+
+data class Leader(
+    val id: String,
+    val name: String,
+    val faction: Faction,
+    val ability: LeaderAbility,
+    val description: String,
+)
+
+/** The passive each army carries all match, in the spirit of Gwent's faction perks. */
+enum class FactionTrait {
+    /** Draw a card after winning a round. */
+    DRAW_ON_ROUND_WIN,
+    /** Keep one random unit on the board when the round ends. */
+    KEEP_RANDOM_UNIT,
+    /** Win rounds that end level. */
+    WIN_TIES,
+    /** Always opens the match, whatever the coin says. */
+    ALWAYS_OPENS,
+    /** Return a random card from the graveyard to hand when round three begins. */
+    RECOVER_AT_ROUND_THREE,
+}

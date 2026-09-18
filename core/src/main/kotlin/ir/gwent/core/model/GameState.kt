@@ -1,5 +1,7 @@
 package ir.gwent.core.model
 
+import kotlin.random.Random
+
 enum class Side { A, B }
 
 fun Side.other(): Side = if (this == Side.A) Side.B else Side.A
@@ -19,13 +21,24 @@ data class PlayerState(
     var lives: Int = STARTING_LIVES,
     var roundsWon: Int = 0,
     var passed: Boolean = false,
+    val leader: Leader = Leaders.forFaction(faction),
+    val trait: FactionTrait = Leaders.traitFor(faction),
+    var leaderUsed: Boolean = false,
+    /** Cards still swappable before the match starts. */
+    var mulligansLeft: Int = MULLIGAN_ALLOWANCE,
 )
 
 const val STARTING_LIVES = 2
+const val MULLIGAN_ALLOWANCE = 2
 
 data class RoundResult(val round: Int, val powerA: Int, val powerB: Int, val winner: Side?)
 
-class GameState(val playerA: PlayerState, val playerB: PlayerState) {
+class GameState(
+    val playerA: PlayerState,
+    val playerB: PlayerState,
+    /** Kept on the state so trait effects that pick at random stay reproducible under a seed. */
+    val rng: Random = Random.Default,
+) {
     var round: Int = 1
     var turn: Side = Side.A
     var starter: Side = Side.A

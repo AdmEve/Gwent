@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +28,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -104,7 +108,9 @@ fun CardView(
             .then(if (dimmed) Modifier.alpha(0.42f) else Modifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
-        // Art panel: faction-colored glow behind an oversized monogram.
+        // Art panel: the card's illustration if one has been added, otherwise a faction-tinted
+        // glow behind an oversized monogram.
+        val artRes = cardArtRes(card)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -116,14 +122,23 @@ fun CardView(
                     )
                 ),
         ) {
-            Text(
-                text = card.name.first().toString(),
-                modifier = Modifier.align(Alignment.Center).alpha(0.30f),
-                color = GoldLight,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Bold,
-                fontSize = (height.value * 0.42f).sp,
-            )
+            if (artRes != 0) {
+                Image(
+                    painter = painterResource(id = artRes),
+                    contentDescription = card.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(
+                    text = card.name.first().toString(),
+                    modifier = Modifier.align(Alignment.Center).alpha(0.30f),
+                    color = GoldLight,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (height.value * 0.42f).sp,
+                )
+            }
         }
 
         // Diagonal sheen across the glass.
@@ -231,6 +246,24 @@ fun CardView(
             modifier = Modifier
                 .fillMaxSize()
                 .border(if (selected || card.isHero) 2.dp else 1.dp, frameBrush, shape),
+        )
+    }
+}
+
+/**
+ * Looks for this card's illustration by convention: a card with id `mar-iron-man` uses the
+ * drawable `card_mar_iron_man`. Drop artwork into `android/src/main/res/drawable/` under that
+ * name and it appears with no code change; until then the monogram panel stands in.
+ */
+@Composable
+private fun cardArtRes(card: GwentCard): Int {
+    val context = LocalContext.current
+    return remember(card.id) {
+        @Suppress("DiscouragedApi") // by-name lookup is the point: art is added without code changes
+        context.resources.getIdentifier(
+            "card_" + card.id.replace('-', '_'),
+            "drawable",
+            context.packageName,
         )
     }
 }

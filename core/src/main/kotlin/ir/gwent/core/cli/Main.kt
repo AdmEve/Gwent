@@ -89,6 +89,7 @@ private fun promptTarget(state: GameState, card: Card): PlayTarget? = when (card
 private fun aiTurn(state: GameState): List<GameEvent> {
     return when (val move = SimpleAi.chooseMove(state, AI)) {
         is Move.Pass -> GameEngine.pass(state, AI)
+        is Move.UseLeader -> GameEngine.useLeader(state, AI)
         is Move.PlayCard -> GameEngine.playCard(state, AI, move.cardId, move.target)
     }
 }
@@ -134,6 +135,10 @@ private fun printEvent(event: GameEvent) {
                 "Winner: ${event.result.winner?.toString() ?: "draw"}"
         )
         is GameEvent.RoundStarted -> println("Round ${event.round} begins")
+        is GameEvent.Mustered -> println("Mustered: ${event.called.joinToString(", ") { it.name }}")
+        is GameEvent.LeaderUsed -> println("${event.side} used ${event.leader.name}: ${event.leader.description}")
+        is GameEvent.Mulliganed -> println("${event.side} swapped ${event.returned.name} for ${event.drawn?.name ?: "nothing"}")
+        is GameEvent.TraitTriggered -> println("${event.side} faction trait: ${event.trait}")
         is GameEvent.MatchEnded -> {}
         is GameEvent.InvalidMove -> println("Invalid move: ${event.reason}")
     }

@@ -18,8 +18,8 @@ import org.junit.jupiter.api.Test
 class DrawnMatchTest {
 
     private fun emptyHandedMatch(): GameState {
-        // No cards anywhere, so every round is a 0-0 tie.
-        val a = PlayerState(Side.A, Faction.MARVEL, mutableListOf())
+        // No cards anywhere, so every round is a 0-0 tie. Neither army wins ties.
+        val a = PlayerState(Side.A, Faction.PAHLAVAN, mutableListOf())
         val b = PlayerState(Side.B, Faction.DIV, mutableListOf())
         return GameState(a, b)
     }
@@ -54,7 +54,7 @@ class DrawnMatchTest {
 
     @Test
     fun `a tied round costs both players a gem`() {
-        val a = PlayerState(Side.A, Faction.MARVEL, mutableListOf(), CardDatabase.marvel.toMutableList())
+        val a = PlayerState(Side.A, Faction.PAHLAVAN, mutableListOf(), CardDatabase.pahlavan.toMutableList())
         val b = PlayerState(Side.B, Faction.DIV, mutableListOf(), CardDatabase.div.toMutableList())
         val state = GameState(a, b)
 

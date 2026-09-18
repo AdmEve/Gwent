@@ -195,6 +195,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     var tick by remember { mutableStateOf(0) }
     var pendingCard by remember { mutableStateOf<GwentCard?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var mulliganDone by remember { mutableStateOf(false) }
 
     /**
      * Lets the AI take its consecutive turns. Bails out on any rejected move and caps the
@@ -205,6 +206,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
         while (state.turn == AI && !state.matchOver && guard < 200) {
             val events = when (val move = SimpleAi.chooseMove(state, AI)) {
                 is Move.Pass -> GameEngine.pass(state, AI)
+                is Move.UseLeader -> GameEngine.useLeader(state, AI)
                 is Move.PlayCard -> GameEngine.playCard(state, AI, move.cardId, move.target)
             }
             if (events.any { it is GameEvent.InvalidMove }) break
@@ -237,10 +239,35 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     @Suppress("UNUSED_EXPRESSION")
     tick // read so this composable recomposes whenever it's bumped
 
-    // The coin toss can hand the opening turn to the AI.
-    LaunchedEffect(state) {
-        runAiIfNeeded()
-        tick++
+    // The coin toss can hand the opening turn to the AI, but not before both sides have
+    // finished swapping cards.
+    LaunchedEffect(state, mulliganDone) {
+        if (mulliganDone) {
+            runAiIfNeeded()
+            tick++
+        }
+    }
+
+    if (!mulliganDone) {
+        MulliganScreen(
+            state = state,
+            playerFaction = playerFaction,
+            aiFaction = aiFaction,
+            onSwap = { card ->
+                GameEngine.mulligan(state, HUMAN, card.id)
+                tick++
+            },
+            onReady = {
+                // The opponent ditches its two weakest cards before the match begins.
+                repeat(state.playerB.mulligansLeft) {
+                    val worst = state.playerB.hand.minByOrNull { it.basePower }
+                    if (worst != null) GameEngine.mulligan(state, AI, worst.id)
+                }
+                mulliganDone = true
+                tick++
+            },
+        )
+        return
     }
 
     val decoyTargets: Set<String> = if (pendingCard?.ability == Ability.DECOY) {
@@ -274,6 +301,12 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 Column {
                     Text(factionLabel(aiFaction), style = SectionTitle)
                     Gems(lives = state.playerB.lives, modifier = Modifier.padding(top = 3.dp))
+                    Text(
+                        text = state.playerB.leader.name + if (state.playerB.leaderUsed) " (spent)" else "",
+                        color = if (state.playerB.leaderUsed) Color(0xFF5B6675) else MutedText,
+                        fontSize = 9.sp,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("ROUND ${state.round.coerceAtMost(3)}", color = MutedText, fontSize = 10.sp, letterSpacing = 2.sp)
@@ -395,9 +428,53 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 }
             }
 
+            // Leader ability: once per match, and it costs the turn like playing a card.
+            val leaderReady = GameEngine.canUseLeader(state, HUMAN)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (leaderReady) Brush.horizontalGradient(listOf(Color(0xFF2A2214), PanelBackground)) else Brush.horizontalGradient(listOf(PanelBackground, PanelBackground)))
+                    .border(1.dp, if (leaderReady) MetalGold else Color(0xFF2A3140), RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        state.playerA.leader.name,
+                        color = if (leaderReady) GoldLight else Color(0xFF5B6675),
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        if (state.playerA.leaderUsed) "Already used this match" else state.playerA.leader.description,
+                        color = MutedText,
+                        fontSize = 10.sp,
+                    )
+                }
+                Button(
+                    onClick = {
+                        message = null
+                        GameEngine.useLeader(state, HUMAN)
+                        runAiIfNeeded()
+                        tick++
+                    },
+                    enabled = leaderReady,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF3A2F17),
+                        contentColor = GoldLight,
+                        disabledContainerColor = Color(0xFF1A1F29),
+                        disabledContentColor = Color(0xFF5B6675),
+                    ),
+                ) { Text("Use", fontFamily = FontFamily.Serif) }
+            }
+
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
             ) {
                 Button(
                     onClick = {
@@ -417,6 +494,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 OutlinedButton(
                     onClick = {
                         state = GameEngine.newMatch(playerFaction, aiFaction)
+                        mulliganDone = false
                         pendingCard = null
                         message = null
                         tick++
@@ -493,6 +571,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                         Button(
                             onClick = {
                                 state = GameEngine.newMatch(playerFaction, aiFaction)
+                                mulliganDone = false
                                 pendingCard = null
                                 message = null
                                 tick++
