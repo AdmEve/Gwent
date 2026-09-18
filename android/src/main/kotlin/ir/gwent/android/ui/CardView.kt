@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -39,7 +41,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Text
 import ir.gwent.core.model.Ability
 import ir.gwent.core.model.Card as GwentCard
 
@@ -66,9 +67,9 @@ private fun abilityColor(ability: Ability): Color = when (ability) {
 }
 
 /**
- * A card rendered in layers, back to front: drop shadow, faction-tinted art panel with a
- * monogram and sheen, a nameplate, a struck-metal frame (gold and shimmering for heroes,
- * silver otherwise), the power gem, and a frost wash when the row is under weather.
+ * A card in layers, back to front: drop shadow, painted face (a real illustration if one has
+ * been added, otherwise the generated heraldry), a darkened nameplate, the struck-metal frame
+ * with corner ornaments, the power gem, and a frost wash when the row is under weather.
  */
 @Composable
 fun CardView(
@@ -83,85 +84,58 @@ fun CardView(
     modifier: Modifier = Modifier,
 ) {
     val palette = factionPalette(card.faction)
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape((width.value * 0.09f).dp)
     val isEffect = card.ability == Ability.WEATHER || card.ability == Ability.CLEAR_WEATHER
+    val compact = width < 72.dp
 
-    // Only heroes animate. The sweep is read during composition, so every card that owns an
-    // infinite transition recomposes each frame — fine for the couple of heroes on screen,
-    // wasteful for a whole hand.
     val frameBrush = when {
         selected -> Brush.linearGradient(listOf(GoldLight, Color(0xFFFFF6DA), GoldLight))
         card.isHero -> heroFrameBrush()
         else -> MetalSilver
     }
 
+    val artRes = cardArtRes(card)
+    val seed = remember(card.id) { card.id.hashCode() }
+
     Box(
         modifier = modifier
             .size(width = width, height = height)
             .shadow(
-                elevation = if (selected) 16.dp else 7.dp,
+                elevation = if (selected) 18.dp else 8.dp,
                 shape = shape,
                 ambientColor = if (card.isHero) HeroGold else Color.Black,
                 spotColor = if (card.isHero) HeroGold else Color.Black,
             )
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(CardBackgroundHi, CardBackground)))
-            .then(if (dimmed) Modifier.alpha(0.42f) else Modifier)
+            .then(if (dimmed) Modifier.alpha(0.45f) else Modifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
-        // Art panel: the card's illustration if one has been added, otherwise a faction-tinted
-        // glow behind an oversized monogram.
-        val artRes = cardArtRes(card)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(palette.accent.copy(alpha = 0.42f), palette.deep.copy(alpha = 0.75f), Color.Transparent),
-                        center = Offset(width.value * 1.4f, height.value * 0.9f),
-                        radius = width.value * 2.6f,
-                    )
-                ),
-        ) {
-            if (artRes != 0) {
-                Image(
-                    painter = painterResource(id = artRes),
-                    contentDescription = card.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Text(
-                    text = card.name.first().toString(),
-                    modifier = Modifier.align(Alignment.Center).alpha(0.30f),
-                    color = GoldLight,
-                    fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = (height.value * 0.42f).sp,
+        // Painted face.
+        if (artRes != 0) {
+            Image(
+                painter = painterResource(id = artRes),
+                contentDescription = card.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCardArt(
+                    seed = seed,
+                    accent = palette.accent,
+                    deep = palette.deep,
+                    isHero = card.isHero,
+                    ability = card.ability,
+                    row = card.row,
                 )
             }
         }
-
-        // Diagonal sheen across the glass.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(Color.White.copy(alpha = 0.10f), Color.Transparent, Color.Transparent),
-                        start = Offset(0f, 0f),
-                        end = Offset(width.value * 2.2f, height.value * 2.2f),
-                    )
-                ),
-        )
 
         if (weathered) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(listOf(FrostTint.copy(alpha = 0.30f), Color(0x552E5C80)))
-                    ),
+                    .background(Brush.verticalGradient(listOf(FrostTint.copy(alpha = 0.34f), Color(0x662E5C80)))),
             )
         }
 
@@ -170,24 +144,25 @@ fun CardView(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6070A0F), Color(0xFF05070A))))
-                .padding(horizontal = 5.dp, vertical = 4.dp),
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE0070A0F), Color(0xFF05070A))))
+                .padding(horizontal = 4.dp, vertical = 3.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            abilityBadge(card.ability)?.let { label ->
+            abilityBadge(card.ability)?.takeIf { !compact }?.let { label ->
                 Box(
                     modifier = Modifier
-                        .padding(bottom = 3.dp)
+                        .padding(bottom = 2.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .background(abilityColor(card.ability).copy(alpha = 0.92f))
                         .padding(horizontal = 4.dp, vertical = 1.dp),
                 ) {
-                    Text(label, color = Color(0xFF0B0D11), fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                    Text(label, color = Color(0xFF0B0D11), fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp)
                 }
             }
             Text(
                 text = card.name,
                 style = CardName,
+                fontSize = if (compact) 8.sp else 10.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -195,19 +170,22 @@ fun CardView(
             )
         }
 
-        // Power gem, or a weather sigil for effect cards that have no power of their own.
+        // Power gem, or a weather sigil for effect cards which have no power of their own.
+        val gemSize = if (compact) 21.dp else 27.dp
         if (!isEffect) {
             val power = displayPower ?: card.basePower
             val weakened = displayPower != null && displayPower < card.basePower
+            val boosted = displayPower != null && displayPower > card.basePower
             val gemFill = when {
                 card.isHero -> Brush.radialGradient(listOf(Color(0xFFFFE9AE), Color(0xFFB98A24)))
                 weakened -> Brush.radialGradient(listOf(Color(0xFFD6ECFF), Color(0xFF3F6E96)))
-                else -> Brush.radialGradient(listOf(Color(0xFFE8EDF5), Color(0xFF4C5766)))
+                boosted -> Brush.radialGradient(listOf(Color(0xFFFFF0C4), Color(0xFFC9922C)))
+                else -> Brush.radialGradient(listOf(Color(0xFFE8EDF5), Color(0xFF49535F)))
             }
             Box(
                 modifier = Modifier
-                    .padding(4.dp)
-                    .size(if (width > 80.dp) 27.dp else 23.dp)
+                    .padding(3.dp)
+                    .size(gemSize)
                     .clip(CircleShape)
                     .background(gemFill)
                     .border(1.5.dp, if (card.isHero) MetalGold else MetalSilver, CircleShape),
@@ -218,35 +196,38 @@ fun CardView(
                     color = Color(0xFF14181F),
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
-                    fontSize = if (width > 80.dp) 15.sp else 13.sp,
+                    fontSize = if (compact) 12.sp else 15.sp,
                 )
             }
         } else {
             Box(
                 modifier = Modifier
-                    .padding(4.dp)
-                    .size(23.dp)
+                    .padding(3.dp)
+                    .size(gemSize)
                     .clip(CircleShape)
                     .background(Brush.radialGradient(listOf(FrostTint, WeatherTint)))
                     .border(1.5.dp, MetalSilver, CircleShape),
             )
         }
 
-        if (card.isHero) {
+        if (card.isHero && !compact) {
             Text(
                 text = "★",
-                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
                 color = GoldLight,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
             )
         }
 
-        // Frame on top of everything so it reads as the card's edge.
+        // Frame last, so it reads as the card's edge.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .border(if (selected || card.isHero) 2.dp else 1.dp, frameBrush, shape),
+                .border(if (selected || card.isHero) 2.dp else 1.dp, frameBrush, shape)
+                .ornateCorners(
+                    tint = if (card.isHero || selected) GoldLight.copy(alpha = 0.85f) else Color(0xFFBFC9D6).copy(alpha = 0.55f),
+                ),
         )
     }
 }
@@ -254,7 +235,7 @@ fun CardView(
 /**
  * Looks for this card's illustration by convention: a card with id `mar-iron-man` uses the
  * drawable `card_mar_iron_man`. Drop artwork into `android/src/main/res/drawable/` under that
- * name and it appears with no code change; until then the monogram panel stands in.
+ * name and it replaces the generated heraldry with no code change.
  */
 @Composable
 private fun cardArtRes(card: GwentCard): Int {
@@ -285,25 +266,28 @@ private fun heroFrameBrush(): Brush {
     )
 }
 
-/** Card back, for the opponent's hand. */
+/** Card back, used for the opponent's hand and the deck pile. */
 @Composable
 fun CardBack(width: Dp = 46.dp, height: Dp = 66.dp, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(6.dp)
+    val shape = RoundedCornerShape((width.value * 0.1f).dp)
     Box(
         modifier = modifier
             .size(width = width, height = height)
             .shadow(4.dp, shape)
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF2A2214), Color(0xFF130F09))))
+            .background(Brush.verticalGradient(listOf(Color(0xFF2C2415), Color(0xFF120F09))))
             .border(1.dp, MetalBronze, shape),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(width * 0.42f)
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(GoldDeep.copy(alpha = 0.9f), Color.Transparent))),
-        )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val c = Offset(size.width / 2f, size.height / 2f)
+            drawCircle(
+                brush = Brush.radialGradient(listOf(GoldDeep.copy(alpha = 0.85f), Color.Transparent), center = c, radius = size.minDimension * 0.5f),
+                radius = size.minDimension * 0.5f,
+                center = c,
+            )
+            drawCircle(GoldDeep.copy(alpha = 0.9f), radius = size.minDimension * 0.26f, center = c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = size.minDimension * 0.05f))
+        }
     }
 }
 
@@ -327,7 +311,7 @@ fun Chip(text: String, color: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** The big round-score gem next to each army's name. */
+/** The round-score gem beside each army's name. */
 @Composable
 fun RoundPip(won: Boolean, modifier: Modifier = Modifier) {
     Box(

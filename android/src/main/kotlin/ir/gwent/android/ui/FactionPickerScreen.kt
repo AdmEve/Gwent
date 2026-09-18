@@ -17,8 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,8 +44,7 @@ fun FactionPickerScreen(onStart: (playerFaction: Faction, aiFaction: Faction) ->
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Ink, BoardMid, Ink)))
-            .vignette(),
+            .tableSurface(),
     ) {
         Column(
             modifier = Modifier
@@ -83,26 +80,13 @@ fun FactionPickerScreen(onStart: (playerFaction: Faction, aiFaction: Faction) ->
             }
 
             Spacer(modifier = Modifier.height(20.dp))
-            Button(
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+            CarvedButton(
+                text = "TO BATTLE",
+                primary = true,
                 enabled = playerFaction != null && aiFaction != null,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2E3647),
-                    contentColor = GoldLight,
-                    disabledContainerColor = Color(0xFF181D26),
-                    disabledContentColor = Color(0xFF55606F),
-                ),
                 onClick = { onStart(playerFaction!!, aiFaction!!) },
-            ) {
-                Text(
-                    "TO BATTLE",
-                    fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    letterSpacing = 3.sp,
-                )
-            }
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(modifier = Modifier.height(24.dp))
         }
     }

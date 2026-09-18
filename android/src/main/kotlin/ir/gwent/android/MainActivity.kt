@@ -3,14 +3,12 @@ package ir.gwent.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,10 +22,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.gwent.android.ui.BoardScreen
+import ir.gwent.android.ui.CarvedButton
 import ir.gwent.android.ui.DangerRed
 import ir.gwent.android.ui.FactionPickerScreen
 import ir.gwent.android.ui.GwentTheme
-import ir.gwent.android.ui.Ink
+import ir.gwent.android.ui.tableSurface
 import ir.gwent.android.ui.MutedText
 import ir.gwent.android.ui.SectionTitle
 import ir.gwent.core.model.Faction
@@ -85,7 +84,7 @@ private fun CrashScreen(trace: String, trail: String, onDismiss: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Ink)
+            .tableSurface()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
@@ -96,7 +95,7 @@ private fun CrashScreen(trace: String, trail: String, onDismiss: () -> Unit) {
             fontSize = 12.sp,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
-        Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Continue to the game") }
+        CarvedButton(text = "CONTINUE", primary = true, onClick = onDismiss, modifier = Modifier.fillMaxWidth())
 
         if (trail.isNotBlank()) {
             Text("WHAT HAPPENED JUST BEFORE", style = SectionTitle, modifier = Modifier.padding(top = 16.dp))

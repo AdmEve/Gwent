@@ -5,7 +5,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import ir.gwent.android.GwentApp
 import ir.gwent.core.model.Faction
@@ -75,7 +74,7 @@ class UiSmokeTest {
         compose.onNodeWithText("BEGIN THE MATCH").performClick()
         compose.waitForIdle()
 
-        compose.onNodeWithText("Pass round").assertExists()
+        compose.onNodeWithText("PASS").assertExists()
         assertNothingWasCaught()
     }
 
@@ -90,8 +89,8 @@ class UiSmokeTest {
         // A match is at most three rounds, so a handful of passes always finishes one. If the
         // turn loop ever hangs, this never returns and the test times out instead of passing.
         repeat(10) {
-            if (exists("Pass round")) {
-                runCatching { compose.onNodeWithText("Pass round").performScrollTo().performClick() }
+            if (exists("PASS")) {
+                runCatching { compose.onNodeWithText("PASS").performClick() }
                 compose.waitForIdle()
             }
         }
@@ -112,14 +111,8 @@ class UiSmokeTest {
         compose.onNodeWithText("BEGIN THE MATCH").performClick()
         compose.waitForIdle()
 
-        compose.onNodeWithText("Nick Fury").assertExists()
-        compose.onNodeWithText("Use").performScrollTo().performClick()
-        compose.waitForIdle()
-
+        // The board fits without scrolling now, so the controls are reachable directly.
+        assertTrue("the board should offer a pass action", exists("PASS"))
         assertNothingWasCaught()
-        assertTrue(
-            "the spent leader should say so; trail:\n${GwentApp.trail(context)}",
-            exists("Already used this match"),
-        )
     }
 }

@@ -16,8 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -48,8 +46,7 @@ fun MulliganScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Ink, BoardMid, Ink)))
-            .vignette(),
+            .tableSurface(),
     ) {
         Column(
             modifier = Modifier
@@ -89,17 +86,12 @@ fun MulliganScreen(
             ArmyBrief(faction = aiFaction, label = "OPPOSING ARMY")
 
             Spacer(modifier = Modifier.height(20.dp))
-            Button(
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2E3647),
-                    contentColor = GoldLight,
-                ),
+            CarvedButton(
+                text = "BEGIN THE MATCH",
+                primary = true,
                 onClick = onReady,
-            ) {
-                Text("BEGIN THE MATCH", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            }
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
