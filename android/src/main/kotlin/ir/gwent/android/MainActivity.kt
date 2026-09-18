@@ -59,6 +59,7 @@ private fun AppRoot() {
     if (pendingCrash != null) {
         CrashScreen(
             trace = pendingCrash,
+            trail = GwentApp.trail(context),
             onDismiss = {
                 GwentApp.clearLastCrash(context)
                 crash = null
@@ -80,7 +81,7 @@ private fun AppRoot() {
 
 /** Shown once after a crash so the failure can actually be read and reported. */
 @Composable
-private fun CrashScreen(trace: String, onDismiss: () -> Unit) {
+private fun CrashScreen(trace: String, trail: String, onDismiss: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -96,12 +97,25 @@ private fun CrashScreen(trace: String, onDismiss: () -> Unit) {
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
         Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Continue to the game") }
+
+        if (trail.isNotBlank()) {
+            Text("WHAT HAPPENED JUST BEFORE", style = SectionTitle, modifier = Modifier.padding(top = 16.dp))
+            Text(
+                text = trail,
+                color = MutedText,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+
+        Text("STACK TRACE", style = SectionTitle, modifier = Modifier.padding(top = 16.dp))
         Text(
             text = trace,
             color = MutedText,
             fontFamily = FontFamily.Monospace,
             fontSize = 10.sp,
-            modifier = Modifier.padding(top = 16.dp),
+            modifier = Modifier.padding(top = 4.dp),
         )
     }
 }

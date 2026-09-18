@@ -47,10 +47,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ir.gwent.android.GwentApp
 import ir.gwent.core.ai.Move
 import ir.gwent.core.ai.SimpleAi
 import ir.gwent.core.engine.GameEngine
@@ -192,11 +194,25 @@ fun RowSlot(
 
 @Composable
 fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) {
+    val context = LocalContext.current
     var state by remember { mutableStateOf(GameEngine.newMatch(playerFaction, aiFaction)) }
     var tick by remember { mutableStateOf(0) }
     var pendingCard by remember { mutableStateOf<GwentCard?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var mulliganDone by remember { mutableStateOf(false) }
+
+    /**
+     * Runs a piece of game logic without letting it take the app down. An engine failure
+     * mid-match should surface as a message we can read, not a process death, and the trail
+     * of recent moves is what makes the report useful afterwards.
+     */
+    fun safely(what: String, block: () -> Unit) {
+        GwentApp.note(context, "r${state.round} $what")
+        runCatching(block).onFailure { error ->
+            GwentApp.recordHandled(context, error)
+            message = "Something went wrong (${error::class.java.simpleName}). Reopen the app to see the report."
+        }
+    }
 
     /**
      * Lets the AI take its consecutive turns. Bails out on any rejected move and caps the
@@ -213,13 +229,19 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             if (events.any { it is GameEvent.InvalidMove }) break
             guard++
         }
+        if (guard >= 200) {
+            GwentApp.note(context, "AI RUNNER HIT ITS CAP — turn=${state.turn} round=${state.round}")
+            message = "The opponent got stuck and was stopped. Please report this."
+        }
     }
 
     fun play(cardId: String, target: PlayTarget?) {
         message = null
-        val events = GameEngine.playCard(state, HUMAN, cardId, target)
-        events.filterIsInstance<GameEvent.InvalidMove>().firstOrNull()?.let { message = it.reason }
-        runAiIfNeeded()
+        safely("play $cardId") {
+            val events = GameEngine.playCard(state, HUMAN, cardId, target)
+            events.filterIsInstance<GameEvent.InvalidMove>().firstOrNull()?.let { message = it.reason }
+            runAiIfNeeded()
+        }
         tick++
     }
 
@@ -244,7 +266,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     // finished swapping cards.
     LaunchedEffect(state, mulliganDone) {
         if (mulliganDone) {
-            runAiIfNeeded()
+            safely("opening turn") { runAiIfNeeded() }
             tick++
         }
     }
@@ -255,14 +277,16 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             playerFaction = playerFaction,
             aiFaction = aiFaction,
             onSwap = { card ->
-                GameEngine.mulligan(state, HUMAN, card.id)
+                safely("swap ${card.id}") { GameEngine.mulligan(state, HUMAN, card.id) }
                 tick++
             },
             onReady = {
-                // The opponent ditches its two weakest cards before the match begins.
-                repeat(state.playerB.mulligansLeft) {
-                    val worst = state.playerB.hand.minByOrNull { it.basePower }
-                    if (worst != null) GameEngine.mulligan(state, AI, worst.id)
+                safely("begin match") {
+                    // The opponent ditches its two weakest cards before the match begins.
+                    repeat(state.playerB.mulligansLeft) {
+                        val worst = state.playerB.hand.minByOrNull { it.basePower }
+                        if (worst != null) GameEngine.mulligan(state, AI, worst.id)
+                    }
                 }
                 mulliganDone = true
                 tick++
@@ -459,8 +483,10 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 Button(
                     onClick = {
                         message = null
-                        GameEngine.useLeader(state, HUMAN)
-                        runAiIfNeeded()
+                        safely("leader") {
+                            GameEngine.useLeader(state, HUMAN)
+                            runAiIfNeeded()
+                        }
                         tick++
                     },
                     enabled = leaderReady,
@@ -480,8 +506,10 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 Button(
                     onClick = {
                         message = null
-                        GameEngine.pass(state, HUMAN)
-                        runAiIfNeeded()
+                        safely("pass") {
+                            GameEngine.pass(state, HUMAN)
+                            runAiIfNeeded()
+                        }
                         tick++
                     },
                     enabled = yourTurn,
