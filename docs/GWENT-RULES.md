@@ -14,6 +14,12 @@ Research notes compiled from primary sources for the rebuild of this project fro
 > **[unverified]** could not be confirmed from either source and need checking against the live
 > client before being encoded as engine invariants.
 
+> **Source precedence.** `https://www.playgwent.com/en` — the official CD PROJEKT RED site — is the
+> **authoritative source** for this project. Every other source is secondary. **Where any secondary
+> source contradicts the official site, the official site wins**, and the contradiction is recorded
+> here rather than silently resolved. Secondary sources are used only to fill gaps the official
+> site leaves open.
+
 ---
 
 ## 1. Sources and how they were reached
