@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.gwent.core.model.Card as GwentCard
 import ir.gwent.core.model.Faction
-import ir.gwent.core.model.GameState
 import ir.gwent.core.model.Leaders
 
 /**
@@ -38,13 +37,13 @@ import ir.gwent.core.model.Leaders
  */
 @Composable
 fun MulliganScreen(
-    state: GameState,
+    hand: List<GwentCard>,
+    swapsLeft: Int,
     playerFaction: Faction,
     aiFaction: Faction,
     onSwap: (GwentCard) -> Unit,
     onReady: () -> Unit,
 ) {
-    val swapsLeft = state.playerA.mulligansLeft
 
     Box(
         modifier = Modifier
@@ -74,7 +73,7 @@ fun MulliganScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                items(state.playerA.hand) { card ->
+                items(hand, key = { it.id }) { card ->
                     CardView(
                         card = card,
                         onClick = if (swapsLeft > 0) {

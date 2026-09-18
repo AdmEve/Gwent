@@ -61,7 +61,6 @@ import ir.gwent.core.engine.PlayTarget
 import ir.gwent.core.model.Ability
 import ir.gwent.core.model.Card as GwentCard
 import ir.gwent.core.model.Faction
-import ir.gwent.core.model.GameState
 import ir.gwent.core.model.Row as GwentRow
 import ir.gwent.core.model.STARTING_LIVES
 import ir.gwent.core.model.Side
@@ -123,14 +122,10 @@ private fun PileCount(label: String, count: Int) {
 
 @Composable
 fun RowSlot(
-    row: GwentRow,
-    cards: List<GwentCard>,
-    state: GameState,
-    totalPower: Int,
+    row: RowUi,
     selectableTargets: Set<String> = emptySet(),
     onCardTap: ((GwentCard) -> Unit)? = null,
 ) {
-    val weathered = row in state.weatheredRows
     val targeting = selectableTargets.isNotEmpty() && onCardTap != null
     Box(
         modifier = Modifier
@@ -141,7 +136,7 @@ fun RowSlot(
                 Brush.horizontalGradient(
                     listOf(
                         if (targeting) RowSlotLit else RowSlotBackground,
-                        if (weathered) Color(0xFF16222E) else RowSlotBackground,
+                        if (row.weathered) Color(0xFF16222E) else RowSlotBackground,
                     )
                 )
             )
@@ -150,12 +145,12 @@ fun RowSlot(
         Row(modifier = Modifier.fillMaxSize().padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.width(44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 RowGlyph(
-                    row = row,
-                    tint = if (weathered) FrostTint else Color(0xFF6E7A8C),
+                    row = row.row,
+                    tint = if (row.weathered) FrostTint else Color(0xFF6E7A8C),
                     modifier = Modifier.size(19.dp),
                 )
                 Text(
-                    text = totalPower.toString(),
+                    text = row.total.toString(),
                     color = GoldText,
                     fontFamily = FontFamily.Serif,
                     fontSize = 16.sp,
@@ -168,14 +163,14 @@ fun RowSlot(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(cards) { card ->
+                items(row.cards, key = { it.id }) { card ->
                     val selectable = card.id in selectableTargets
                     CardView(
                         card = card,
-                        displayPower = GameEngine.effectivePower(state, card, row, cards),
+                        displayPower = row.power[card.id],
                         selected = selectable,
                         dimmed = targeting && !selectable,
-                        weathered = weathered && !card.isHero,
+                        weathered = row.weathered && !card.isHero,
                         width = 60.dp,
                         height = 84.dp,
                         onClick = if (onCardTap != null && (selectableTargets.isEmpty() || selectable)) {
@@ -186,8 +181,8 @@ fun RowSlot(
             }
         }
 
-        if (weathered) {
-            WeatherOverlay(row = row, modifier = Modifier.fillMaxSize())
+        if (row.weathered) {
+            WeatherOverlay(row = row.row, modifier = Modifier.fillMaxSize())
         }
     }
 }
@@ -195,11 +190,19 @@ fun RowSlot(
 @Composable
 fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) {
     val context = LocalContext.current
-    var state by remember { mutableStateOf(GameEngine.newMatch(playerFaction, aiFaction)) }
-    var tick by remember { mutableStateOf(0) }
+    var engine by remember(playerFaction, aiFaction) {
+        mutableStateOf(GameEngine.newMatch(playerFaction, aiFaction))
+    }
+
+    // Everything drawn below reads this immutable snapshot, never the live game state.
+    var ui by remember(playerFaction, aiFaction) { mutableStateOf(snapshotOf(engine, HUMAN)) }
     var pendingCard by remember { mutableStateOf<GwentCard?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var mulliganDone by remember { mutableStateOf(false) }
+
+    fun refresh() {
+        ui = snapshotOf(engine, HUMAN)
+    }
 
     /**
      * Runs a piece of game logic without letting it take the app down. An engine failure
@@ -207,11 +210,12 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
      * of recent moves is what makes the report useful afterwards.
      */
     fun safely(what: String, block: () -> Unit) {
-        GwentApp.note(context, "r${state.round} $what")
+        GwentApp.note(context, "r${engine.round} $what")
         runCatching(block).onFailure { error ->
             GwentApp.recordHandled(context, error)
             message = "Something went wrong (${error::class.java.simpleName}). Reopen the app to see the report."
         }
+        refresh()
     }
 
     /**
@@ -220,17 +224,17 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
      */
     fun runAiIfNeeded() {
         var guard = 0
-        while (state.turn == AI && !state.matchOver && guard < 200) {
-            val events = when (val move = SimpleAi.chooseMove(state, AI)) {
-                is Move.Pass -> GameEngine.pass(state, AI)
-                is Move.UseLeader -> GameEngine.useLeader(state, AI)
-                is Move.PlayCard -> GameEngine.playCard(state, AI, move.cardId, move.target)
+        while (engine.turn == AI && !engine.matchOver && guard < 200) {
+            val events = when (val move = SimpleAi.chooseMove(engine, AI)) {
+                is Move.Pass -> GameEngine.pass(engine, AI)
+                is Move.UseLeader -> GameEngine.useLeader(engine, AI)
+                is Move.PlayCard -> GameEngine.playCard(engine, AI, move.cardId, move.target)
             }
             if (events.any { it is GameEvent.InvalidMove }) break
             guard++
         }
         if (guard >= 200) {
-            GwentApp.note(context, "AI RUNNER HIT ITS CAP — turn=${state.turn} round=${state.round}")
+            GwentApp.note(context, "AI RUNNER HIT ITS CAP — turn=${engine.turn} round=${engine.round}")
             message = "The opponent got stuck and was stopped. Please report this."
         }
     }
@@ -238,73 +242,67 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     fun play(cardId: String, target: PlayTarget?) {
         message = null
         safely("play $cardId") {
-            val events = GameEngine.playCard(state, HUMAN, cardId, target)
+            val events = GameEngine.playCard(engine, HUMAN, cardId, target)
             events.filterIsInstance<GameEvent.InvalidMove>().firstOrNull()?.let { message = it.reason }
             runAiIfNeeded()
         }
-        tick++
+    }
+
+    fun restart() {
+        engine = GameEngine.newMatch(playerFaction, aiFaction)
+        pendingCard = null
+        message = null
+        mulliganDone = false
+        refresh()
     }
 
     fun onHandCardTap(card: GwentCard) {
-        if (state.turn != HUMAN || state.matchOver) return
+        if (!ui.yourTurn) return
         when (card.ability) {
             Ability.DECOY -> {
-                val hasTarget = GwentRow.entries.any { r -> state.playerA.board.getValue(r).any { !it.isHero } }
-                if (hasTarget) pendingCard = card else message = "No unit on your board to swap with Decoy."
+                if (ui.decoyTargets.isNotEmpty()) pendingCard = card
+                else message = "No unit on your board to swap with Decoy."
             }
             Ability.MEDIC -> {
-                if (state.playerA.discard.isNotEmpty()) pendingCard = card else play(card.id, null)
+                if (ui.graveyard.isNotEmpty()) pendingCard = card else play(card.id, null)
             }
             else -> play(card.id, null)
         }
     }
 
-    @Suppress("UNUSED_EXPRESSION")
-    tick // read so this composable recomposes whenever it's bumped
-
     // The coin toss can hand the opening turn to the AI, but not before both sides have
     // finished swapping cards.
-    LaunchedEffect(state, mulliganDone) {
+    LaunchedEffect(engine, mulliganDone) {
         if (mulliganDone) {
             safely("opening turn") { runAiIfNeeded() }
-            tick++
         }
     }
 
     if (!mulliganDone) {
         MulliganScreen(
-            state = state,
+            hand = ui.hand,
+            swapsLeft = ui.mulligansLeft,
             playerFaction = playerFaction,
             aiFaction = aiFaction,
-            onSwap = { card ->
-                safely("swap ${card.id}") { GameEngine.mulligan(state, HUMAN, card.id) }
-                tick++
-            },
+            onSwap = { card -> safely("swap ${card.id}") { GameEngine.mulligan(engine, HUMAN, card.id) } },
             onReady = {
                 safely("begin match") {
                     // The opponent ditches its two weakest cards before the match begins.
-                    repeat(state.playerB.mulligansLeft) {
-                        val worst = state.playerB.hand.minByOrNull { it.basePower }
-                        if (worst != null) GameEngine.mulligan(state, AI, worst.id)
+                    repeat(engine.playerB.mulligansLeft) {
+                        val worst = engine.playerB.hand.minByOrNull { it.basePower }
+                        if (worst != null) GameEngine.mulligan(engine, AI, worst.id)
                     }
                 }
                 mulliganDone = true
-                tick++
             },
         )
         return
     }
 
-    val decoyTargets: Set<String> = if (pendingCard?.ability == Ability.DECOY) {
-        GwentRow.entries.flatMap { state.playerA.board.getValue(it) }.filter { !it.isHero }.map { it.id }.toSet()
-    } else emptySet()
-
-    val playerTotal = GameEngine.totalPower(state, Side.A)
-    val aiTotal = GameEngine.totalPower(state, Side.B)
-    val yourTurn = state.turn == HUMAN && !state.matchOver
+    val decoyTargets = if (pendingCard?.ability == Ability.DECOY) ui.decoyTargets else emptySet()
 
     var showRoundBanner by remember { mutableStateOf(false) }
-    LaunchedEffect(state, state.round) {
+    LaunchedEffect(engine, ui.round) {
         showRoundBanner = true
         delay(1400)
         showRoundBanner = false
@@ -325,23 +323,23 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             ) {
                 Column {
                     Text(factionLabel(aiFaction), style = SectionTitle)
-                    Gems(lives = state.playerB.lives, modifier = Modifier.padding(top = 3.dp))
+                    Gems(lives = ui.opponent.lives, modifier = Modifier.padding(top = 3.dp))
                     Text(
-                        text = state.playerB.leader.name + if (state.playerB.leaderUsed) " (spent)" else "",
-                        color = if (state.playerB.leaderUsed) Color(0xFF5B6675) else MutedText,
+                        text = ui.opponent.leaderName + if (ui.opponent.leaderUsed) " (spent)" else "",
+                        color = if (ui.opponent.leaderUsed) Color(0xFF5B6675) else MutedText,
                         fontSize = 9.sp,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("ROUND ${state.round.coerceAtMost(3)}", color = MutedText, fontSize = 10.sp, letterSpacing = 2.sp)
+                    Text("ROUND ${ui.round}", color = MutedText, fontSize = 10.sp, letterSpacing = 2.sp)
                     Text(
                         text = when {
-                            state.matchOver -> "—"
-                            yourTurn -> "YOUR MOVE"
+                            ui.matchOver -> "—"
+                            ui.yourTurn -> "YOUR MOVE"
                             else -> "OPPONENT"
                         },
-                        color = if (yourTurn) GoldLight else MutedText,
+                        color = if (ui.yourTurn) GoldLight else MutedText,
                         fontFamily = FontFamily.Serif,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -360,31 +358,29 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ArmyTotal(total = aiTotal, leading = aiTotal > playerTotal)
+                    ArmyTotal(total = ui.opponent.total, leading = ui.opponent.total > ui.you.total)
                     Spacer(modifier = Modifier.width(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        repeat(state.playerB.hand.size.coerceAtMost(8)) { CardBack(width = 15.dp, height = 21.dp) }
+                        repeat(ui.opponent.handCount.coerceAtMost(8)) { CardBack(width = 15.dp, height = 21.dp) }
                     }
                 }
-                Piles(deck = state.playerB.deck.size, graveyard = state.playerB.discard.size)
+                Piles(deck = ui.opponent.deckCount, graveyard = ui.opponent.graveCount)
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ROW_ORDER_TOP_DOWN.forEach { row ->
-                    RowSlot(row, state.playerB.board.getValue(row), state, GameEngine.rowPower(state, Side.B, row))
+                    RowSlot(row = ui.opponent.rows.first { it.row == row })
                 }
             }
 
             // ---- Centre line, doubling as the weather slot ----
             OrnateDivider(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
-            if (state.weatheredRows.isNotEmpty()) {
+            if (ui.weathered.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    state.weatheredRows.sortedBy { it.name }.forEach { row ->
-                        Chip(weatherName(row), WeatherTint)
-                    }
+                    ui.weathered.sortedBy { it.name }.forEach { row -> Chip(weatherName(row), WeatherTint) }
                 }
             } else {
                 Spacer(modifier = Modifier.height(4.dp))
@@ -394,13 +390,14 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ROW_ORDER_TOP_DOWN.reversed().forEach { row ->
                     RowSlot(
-                        row = row,
-                        cards = state.playerA.board.getValue(row),
-                        state = state,
-                        totalPower = GameEngine.rowPower(state, Side.A, row),
+                        row = ui.you.rows.first { it.row == row },
                         selectableTargets = decoyTargets,
                         onCardTap = if (pendingCard?.ability == Ability.DECOY) {
-                            { target -> play(pendingCard!!.id, PlayTarget.DecoyTarget(target.id)); pendingCard = null }
+                            { target ->
+                                val decoy = pendingCard
+                                pendingCard = null
+                                if (decoy != null) play(decoy.id, PlayTarget.DecoyTarget(target.id))
+                            }
                         } else null,
                     )
                 }
@@ -412,14 +409,14 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ArmyTotal(total = playerTotal, leading = playerTotal > aiTotal)
+                    ArmyTotal(total = ui.you.total, leading = ui.you.total > ui.opponent.total)
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(factionLabel(playerFaction), style = SectionTitle)
-                        Gems(lives = state.playerA.lives, modifier = Modifier.padding(top = 3.dp))
+                        Gems(lives = ui.you.lives, modifier = Modifier.padding(top = 3.dp))
                     }
                 }
-                Piles(deck = state.playerA.deck.size, graveyard = state.playerA.discard.size)
+                Piles(deck = ui.you.deckCount, graveyard = ui.you.graveCount)
             }
 
             message?.let {
@@ -434,7 +431,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                items(state.playerA.hand) { card ->
+                items(ui.hand, key = { it.id }) { card ->
                     val isPending = pendingCard?.id == card.id
                     val lift by animateDpAsState(
                         targetValue = if (isPending) (-10).dp else 0.dp,
@@ -444,9 +441,9 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                     CardView(
                         card = card,
                         selected = isPending,
-                        dimmed = !yourTurn,
+                        dimmed = !ui.yourTurn,
                         modifier = Modifier.offset(y = lift),
-                        onClick = if (yourTurn && pendingCard == null) {
+                        onClick = if (ui.yourTurn && pendingCard == null) {
                             { onHandCardTap(card) }
                         } else null,
                     )
@@ -454,28 +451,30 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             }
 
             // Leader ability: once per match, and it costs the turn like playing a card.
-            val leaderReady = GameEngine.canUseLeader(state, HUMAN)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 2.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (leaderReady) Brush.horizontalGradient(listOf(Color(0xFF2A2214), PanelBackground)) else Brush.horizontalGradient(listOf(PanelBackground, PanelBackground)))
-                    .border(1.dp, if (leaderReady) MetalGold else SolidColor(Color(0xFF2A3140)), RoundedCornerShape(8.dp))
+                    .background(
+                        if (ui.leaderReady) Brush.horizontalGradient(listOf(Color(0xFF2A2214), PanelBackground))
+                        else Brush.horizontalGradient(listOf(PanelBackground, PanelBackground))
+                    )
+                    .border(1.dp, if (ui.leaderReady) MetalGold else SolidColor(Color(0xFF2A3140)), RoundedCornerShape(8.dp))
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        state.playerA.leader.name,
-                        color = if (leaderReady) GoldLight else Color(0xFF5B6675),
+                        ui.you.leaderName,
+                        color = if (ui.leaderReady) GoldLight else Color(0xFF5B6675),
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                     )
                     Text(
-                        if (state.playerA.leaderUsed) "Already used this match" else state.playerA.leader.description,
+                        if (ui.you.leaderUsed) "Already used this match" else ui.you.leaderDescription,
                         color = MutedText,
                         fontSize = 10.sp,
                     )
@@ -484,12 +483,11 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                     onClick = {
                         message = null
                         safely("leader") {
-                            GameEngine.useLeader(state, HUMAN)
+                            GameEngine.useLeader(engine, HUMAN)
                             runAiIfNeeded()
                         }
-                        tick++
                     },
-                    enabled = leaderReady,
+                    enabled = ui.leaderReady,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF3A2F17),
                         contentColor = GoldLight,
@@ -507,12 +505,11 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                     onClick = {
                         message = null
                         safely("pass") {
-                            GameEngine.pass(state, HUMAN)
+                            GameEngine.pass(engine, HUMAN)
                             runAiIfNeeded()
                         }
-                        tick++
                     },
-                    enabled = yourTurn,
+                    enabled = ui.yourTurn,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF2A3140),
                         contentColor = GoldLight,
@@ -520,15 +517,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                         disabledContentColor = MutedText,
                     ),
                 ) { Text("Pass round", fontFamily = FontFamily.Serif, letterSpacing = 1.sp) }
-                OutlinedButton(
-                    onClick = {
-                        state = GameEngine.newMatch(playerFaction, aiFaction)
-                        mulliganDone = false
-                        pendingCard = null
-                        message = null
-                        tick++
-                    },
-                ) { Text("New match", color = MutedText) }
+                OutlinedButton(onClick = { restart() }) { Text("New match", color = MutedText) }
             }
         }
 
@@ -555,20 +544,19 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
 
         // ---- Round banner ----
         AnimatedVisibility(
-            visible = showRoundBanner && !state.matchOver,
+            visible = showRoundBanner && !ui.matchOver,
             enter = fadeIn(tween(350)) + scaleIn(tween(450), initialScale = 0.85f),
             exit = fadeOut(tween(350)) + scaleOut(tween(350), targetScale = 1.1f),
             modifier = Modifier.align(Alignment.Center),
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("ROUND ${state.round.coerceAtMost(3)}", style = BannerText)
+                Text("ROUND ${ui.round}", style = BannerText)
                 ThinRule(modifier = Modifier.width(200.dp).padding(top = 6.dp))
             }
         }
 
         // ---- Match result ----
-        if (state.matchOver) {
-            val winner = state.matchWinner
+        if (ui.matchOver) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -577,13 +565,13 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = when (winner) {
+                        text = when (ui.winner) {
                             Side.A -> "VICTORY"
                             Side.B -> "DEFEAT"
                             null -> "DRAW"
                         },
                         style = BannerText,
-                        color = when (winner) {
+                        color = when (ui.winner) {
                             Side.A -> GoldLight
                             Side.B -> DangerRed
                             null -> MutedText
@@ -591,20 +579,14 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                     )
                     ThinRule(modifier = Modifier.width(220.dp).padding(vertical = 10.dp))
                     Text(
-                        text = "rounds ${state.playerA.roundsWon} — ${state.playerB.roundsWon}",
+                        text = "rounds ${ui.you.roundsWon} — ${ui.opponent.roundsWon}",
                         color = MutedText,
                         fontFamily = FontFamily.Serif,
                         fontSize = 17.sp,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 18.dp)) {
                         Button(
-                            onClick = {
-                                state = GameEngine.newMatch(playerFaction, aiFaction)
-                                mulliganDone = false
-                                pendingCard = null
-                                message = null
-                                tick++
-                            },
+                            onClick = { restart() },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A3140), contentColor = GoldLight),
                         ) { Text("Rematch", fontFamily = FontFamily.Serif) }
                         OutlinedButton(onClick = onExit) { Text("Change deck", color = MutedText) }
@@ -614,8 +596,8 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
         }
     }
 
-    if (pendingCard?.ability == Ability.MEDIC) {
-        val medic = pendingCard!!
+    val medic = pendingCard
+    if (medic != null && medic.ability == Ability.MEDIC) {
         AlertDialog(
             onDismissRequest = { pendingCard = null },
             containerColor = PanelBackground,
@@ -627,10 +609,10 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                         color = MutedText,
                         fontSize = 12.sp,
                     )
-                    state.playerA.discard.forEach { c ->
+                    ui.graveyard.forEach { c ->
                         TextButton(onClick = {
-                            play(medic.id, PlayTarget.MedicRevive(c.id))
                             pendingCard = null
+                            play(medic.id, PlayTarget.MedicRevive(c.id))
                         }) {
                             Text("${c.name}  ·  ${c.basePower}", color = GoldText, fontFamily = FontFamily.Serif)
                         }
@@ -639,9 +621,10 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { play(medic.id, PlayTarget.MedicRevive(null)); pendingCard = null }) {
-                    Text("Skip", color = MutedText)
-                }
+                TextButton(onClick = {
+                    pendingCard = null
+                    play(medic.id, PlayTarget.MedicRevive(null))
+                }) { Text("Skip", color = MutedText) }
             },
         )
     }
@@ -657,8 +640,6 @@ private fun weatherName(row: GwentRow): String = when (row) {
 @Composable
 private fun Gems(lives: Int, modifier: Modifier = Modifier) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        repeat(STARTING_LIVES) { index ->
-            RoundPip(won = index < lives)
-        }
+        repeat(STARTING_LIVES) { index -> RoundPip(won = index < lives) }
     }
 }
