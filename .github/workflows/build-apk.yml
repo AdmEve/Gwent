@@ -68,6 +68,49 @@ jobs:
       # Runs last, on purpose: the APK is already published by this point, so a failure here
       # never withholds a build, but it does turn the run red instead of being swallowed by
       # continue-on-error (which reports a failed step as successful).
-      - name: Run Compose UI smoke tests
-        timeout-minutes: 12
+      #
+      # This task also renders every screen to android/build/screenshots/*.png via Robolectric's
+      # native graphics backend, so the UI can be reviewed without installing the APK.
+      - name: Run Compose UI smoke tests and render screenshots
+        timeout-minutes: 20
         run: ./gradlew :android:testDebugUnitTest --console=plain
+
+      - name: Upload rendered screens as a workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gwent-screens
+          path: android/build/screenshots/*.png
+          if-no-files-found: warn
+
+      # Committed back to the branch so the rendered UI is reviewable straight from the repo.
+      # Pushes made with GITHUB_TOKEN do not trigger workflows, so this cannot loop.
+      - name: Commit rendered screens to the branch
+        if: always()
+        run: |
+          set -e
+          shopt -s nullglob
+          shots=(android/build/screenshots/*.png)
+          if [ ${#shots[@]} -eq 0 ]; then
+            echo "no screenshots were rendered"
+            exit 0
+          fi
+          mkdir -p docs/screenshots
+          rm -f docs/screenshots/*.png
+          cp android/build/screenshots/*.png docs/screenshots/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "screens unchanged"
+            exit 0
+          fi
+          git commit -m "Render the current UI to docs/screenshots (run #${{ github.run_number }})"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Attach rendered screens to the release
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          files: android/build/screenshots/*.png
