@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -436,7 +437,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                     .padding(top = 2.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (leaderReady) Brush.horizontalGradient(listOf(Color(0xFF2A2214), PanelBackground)) else Brush.horizontalGradient(listOf(PanelBackground, PanelBackground)))
-                    .border(1.dp, if (leaderReady) MetalGold else Color(0xFF2A3140), RoundedCornerShape(8.dp))
+                    .border(1.dp, if (leaderReady) MetalGold else SolidColor(Color(0xFF2A3140)), RoundedCornerShape(8.dp))
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
