@@ -53,12 +53,14 @@ import androidx.compose.ui.unit.sp
 import ir.gwent.core.ai.Move
 import ir.gwent.core.ai.SimpleAi
 import ir.gwent.core.engine.GameEngine
+import ir.gwent.core.engine.GameEvent
 import ir.gwent.core.engine.PlayTarget
 import ir.gwent.core.model.Ability
 import ir.gwent.core.model.Card as GwentCard
 import ir.gwent.core.model.Faction
 import ir.gwent.core.model.GameState
 import ir.gwent.core.model.Row as GwentRow
+import ir.gwent.core.model.STARTING_LIVES
 import ir.gwent.core.model.Side
 import kotlinx.coroutines.delay
 
@@ -90,6 +92,32 @@ private fun ArmyTotal(total: Int, leading: Boolean, modifier: Modifier = Modifie
     }
 }
 
+/** Deck and graveyard counts, shown as small stacked piles like the real board's side columns. */
+@Composable
+private fun Piles(deck: Int, graveyard: Int, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PileCount("DECK", deck)
+        PileCount("GRAVE", graveyard)
+    }
+}
+
+@Composable
+private fun PileCount(label: String, count: Int) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(width = 22.dp, height = 30.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Brush.verticalGradient(listOf(Color(0xFF2A2214), Color(0xFF131009))))
+                .border(1.dp, MetalBronze, RoundedCornerShape(4.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(count.toString(), color = GoldText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+        Text(label, color = MutedText, fontSize = 7.sp, letterSpacing = 0.5.sp)
+    }
+}
+
 @Composable
 fun RowSlot(
     row: GwentRow,
@@ -114,17 +142,10 @@ fun RowSlot(
                     )
                 )
             )
-            .border(
-                1.dp,
-                if (targeting) GoldDeep else Color(0xFF232B38),
-                RoundedCornerShape(8.dp),
-            ),
+            .border(1.dp, if (targeting) GoldDeep else Color(0xFF232B38), RoundedCornerShape(8.dp)),
     ) {
         Row(modifier = Modifier.fillMaxSize().padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(
-                modifier = Modifier.width(44.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            Column(modifier = Modifier.width(44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 RowGlyph(
                     row = row,
                     tint = if (weathered) FrostTint else Color(0xFF6E7A8C),
@@ -175,24 +196,32 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     var pendingCard by remember { mutableStateOf<GwentCard?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
+    /**
+     * Lets the AI take its consecutive turns. Bails out on any rejected move and caps the
+     * iterations: this runs on the main thread, so a logic bug must never become a freeze.
+     */
     fun runAiIfNeeded() {
-        while (state.turn == AI && state.matchWinner == null) {
-            when (val move = SimpleAi.chooseMove(state, AI)) {
+        var guard = 0
+        while (state.turn == AI && !state.matchOver && guard < 200) {
+            val events = when (val move = SimpleAi.chooseMove(state, AI)) {
                 is Move.Pass -> GameEngine.pass(state, AI)
                 is Move.PlayCard -> GameEngine.playCard(state, AI, move.cardId, move.target)
             }
+            if (events.any { it is GameEvent.InvalidMove }) break
+            guard++
         }
     }
 
     fun play(cardId: String, target: PlayTarget?) {
         message = null
-        GameEngine.playCard(state, HUMAN, cardId, target)
+        val events = GameEngine.playCard(state, HUMAN, cardId, target)
+        events.filterIsInstance<GameEvent.InvalidMove>().firstOrNull()?.let { message = it.reason }
         runAiIfNeeded()
         tick++
     }
 
     fun onHandCardTap(card: GwentCard) {
-        if (state.turn != HUMAN || state.matchWinner != null) return
+        if (state.turn != HUMAN || state.matchOver) return
         when (card.ability) {
             Ability.DECOY -> {
                 val hasTarget = GwentRow.entries.any { r -> state.playerA.board.getValue(r).any { !it.isHero } }
@@ -208,13 +237,19 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
     @Suppress("UNUSED_EXPRESSION")
     tick // read so this composable recomposes whenever it's bumped
 
+    // The coin toss can hand the opening turn to the AI.
+    LaunchedEffect(state) {
+        runAiIfNeeded()
+        tick++
+    }
+
     val decoyTargets: Set<String> = if (pendingCard?.ability == Ability.DECOY) {
         GwentRow.entries.flatMap { state.playerA.board.getValue(it) }.filter { !it.isHero }.map { it.id }.toSet()
     } else emptySet()
 
     val playerTotal = GameEngine.totalPower(state, Side.A)
     val aiTotal = GameEngine.totalPower(state, Side.B)
-    val yourTurn = state.turn == HUMAN && state.matchWinner == null
+    val yourTurn = state.turn == HUMAN && !state.matchOver
 
     var showRoundBanner by remember { mutableStateOf(false) }
     LaunchedEffect(state, state.round) {
@@ -238,15 +273,16 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             ) {
                 Column {
                     Text(factionLabel(aiFaction), style = SectionTitle)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 3.dp)) {
-                        RoundPip(state.playerB.roundsWon >= 1)
-                        RoundPip(state.playerB.roundsWon >= 2)
-                    }
+                    Gems(lives = state.playerB.lives, modifier = Modifier.padding(top = 3.dp))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("ROUND ${state.round.coerceAtMost(3)}", color = MutedText, fontSize = 10.sp, letterSpacing = 2.sp)
                     Text(
-                        text = if (state.matchWinner != null) "—" else if (yourTurn) "YOUR MOVE" else "OPPONENT",
+                        text = when {
+                            state.matchOver -> "—"
+                            yourTurn -> "YOUR MOVE"
+                            else -> "OPPONENT"
+                        },
                         color = if (yourTurn) GoldLight else MutedText,
                         fontFamily = FontFamily.Serif,
                         fontSize = 13.sp,
@@ -260,21 +296,19 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             ThinRule(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
 
             // ---- Opponent ----
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                ArmyTotal(total = aiTotal, leading = aiTotal > playerTotal)
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ArmyTotal(total = aiTotal, leading = aiTotal > playerTotal)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        val backs = state.playerB.hand.size.coerceAtMost(8)
-                        repeat(backs) { CardBack(width = 15.dp, height = 21.dp) }
+                        repeat(state.playerB.hand.size.coerceAtMost(8)) { CardBack(width = 15.dp, height = 21.dp) }
                     }
-                    Text(
-                        "hand ${state.playerB.hand.size} · deck ${state.playerB.deck.size} · grave ${state.playerB.discard.size}",
-                        color = MutedText,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
                 }
+                Piles(deck = state.playerB.deck.size, graveyard = state.playerB.discard.size)
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -283,7 +317,20 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 }
             }
 
-            OrnateDivider(modifier = Modifier.padding(vertical = 8.dp))
+            // ---- Centre line, doubling as the weather slot ----
+            OrnateDivider(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+            if (state.weatheredRows.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    state.weatheredRows.sortedBy { it.name }.forEach { row ->
+                        Chip(weatherName(row), WeatherTint)
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
 
             // ---- Player ----
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -311,17 +358,10 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(factionLabel(playerFaction), style = SectionTitle)
-                        Text(
-                            "deck ${state.playerA.deck.size} · grave ${state.playerA.discard.size}",
-                            color = MutedText,
-                            fontSize = 10.sp,
-                        )
+                        Gems(lives = state.playerA.lives, modifier = Modifier.padding(top = 3.dp))
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    RoundPip(state.playerA.roundsWon >= 1)
-                    RoundPip(state.playerA.roundsWon >= 2)
-                }
+                Piles(deck = state.playerA.deck.size, graveyard = state.playerA.discard.size)
             }
 
             message?.let {
@@ -357,10 +397,15 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
             ) {
                 Button(
-                    onClick = { message = null; GameEngine.pass(state, HUMAN); runAiIfNeeded(); tick++ },
+                    onClick = {
+                        message = null
+                        GameEngine.pass(state, HUMAN)
+                        runAiIfNeeded()
+                        tick++
+                    },
                     enabled = yourTurn,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF2A3140),
@@ -403,7 +448,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
 
         // ---- Round banner ----
         AnimatedVisibility(
-            visible = showRoundBanner && state.matchWinner == null,
+            visible = showRoundBanner && !state.matchOver,
             enter = fadeIn(tween(350)) + scaleIn(tween(450), initialScale = 0.85f),
             exit = fadeOut(tween(350)) + scaleOut(tween(350), targetScale = 1.1f),
             modifier = Modifier.align(Alignment.Center),
@@ -415,7 +460,8 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
         }
 
         // ---- Match result ----
-        state.matchWinner?.let { winner ->
+        if (state.matchOver) {
+            val winner = state.matchWinner
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -424,16 +470,24 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = if (winner == Side.A) "VICTORY" else "DEFEAT",
+                        text = when (winner) {
+                            Side.A -> "VICTORY"
+                            Side.B -> "DEFEAT"
+                            null -> "DRAW"
+                        },
                         style = BannerText,
-                        color = if (winner == Side.A) GoldLight else DangerRed,
+                        color = when (winner) {
+                            Side.A -> GoldLight
+                            Side.B -> DangerRed
+                            null -> MutedText
+                        },
                     )
                     ThinRule(modifier = Modifier.width(220.dp).padding(vertical = 10.dp))
                     Text(
-                        text = "${state.playerA.roundsWon} — ${state.playerB.roundsWon}",
+                        text = "rounds ${state.playerA.roundsWon} — ${state.playerB.roundsWon}",
                         color = MutedText,
                         fontFamily = FontFamily.Serif,
-                        fontSize = 20.sp,
+                        fontSize = 17.sp,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 18.dp)) {
                         Button(
@@ -459,7 +513,7 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
             containerColor = PanelBackground,
             title = { Text("Raise a fallen card", style = SectionTitle) },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(
                         "${medic.name} can return one card from your graveyard.",
                         color = MutedText,
@@ -482,5 +536,21 @@ fun BoardScreen(playerFaction: Faction, aiFaction: Faction, onExit: () -> Unit) 
                 }
             },
         )
+    }
+}
+
+private fun weatherName(row: GwentRow): String = when (row) {
+    GwentRow.MELEE -> "FROST"
+    GwentRow.RANGED -> "FOG"
+    GwentRow.SIEGE -> "RAIN"
+}
+
+/** The two gems each army starts with; losing both loses the match. */
+@Composable
+private fun Gems(lives: Int, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(STARTING_LIVES) { index ->
+            RoundPip(won = index < lives)
+        }
     }
 }

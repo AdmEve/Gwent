@@ -22,7 +22,7 @@ fun main() {
 
     val state = GameEngine.newMatch(Faction.PAHLAVAN, Faction.DIV)
 
-    while (state.matchWinner == null) {
+    while (!state.matchOver) {
         printBoard(state)
         val events = if (state.turn == HUMAN) humanTurn(state) else aiTurn(state)
         events.forEach { printEvent(it) }

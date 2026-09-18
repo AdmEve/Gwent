@@ -198,7 +198,7 @@ class GameEngineTest {
     fun `match ends after a player wins two rounds`() {
         // B always passes immediately; A plays its highest-power playable card. A should sweep 2-0.
         val state = testMatch()
-        while (state.matchWinner == null) {
+        while (!state.matchOver) {
             if (state.turn == Side.A) {
                 // Decoy needs a target we're not supplying here, so skip it to avoid a stuck InvalidMove loop.
                 val card = state.player(Side.A).hand.filter { it.ability != Ability.DECOY }.maxByOrNull { it.basePower }

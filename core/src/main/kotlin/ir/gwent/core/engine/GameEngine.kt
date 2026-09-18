@@ -36,9 +36,8 @@ sealed class PlayTarget {
     data class MedicRevive(val discardCardId: String?) : PlayTarget()
 }
 
-const val ROUNDS_TO_WIN = 2
+/** Cards drawn at the start of a match. As in Gwent, this hand has to last all three rounds. */
 const val INITIAL_HAND_SIZE = 10
-const val ROUND_DRAW = 2
 
 object GameEngine {
 
@@ -48,6 +47,9 @@ object GameEngine {
         val state = GameState(a, b)
         drawCards(a, INITIAL_HAND_SIZE)
         drawCards(b, INITIAL_HAND_SIZE)
+        // Coin toss decides who opens the match.
+        state.starter = if (rng.nextBoolean()) Side.A else Side.B
+        state.turn = state.starter
         return state
     }
 
@@ -68,23 +70,48 @@ object GameEngine {
     fun totalPower(state: GameState, side: Side): Int =
         Row.entries.sumOf { rowPower(state, side, it) }
 
-    fun playCard(state: GameState, side: Side, cardId: String, target: PlayTarget? = null): List<GameEvent> {
-        if (state.matchWinner != null) return listOf(GameEvent.InvalidMove("Match is already over"))
-        if (state.turn != side) return listOf(GameEvent.InvalidMove("Not this player's turn"))
+    /**
+     * Why this move would be rejected, or null if it is legal. Exposed so callers that drive
+     * turns in a loop (the AI runner in the UI) can never pick a move that changes nothing and
+     * spin forever.
+     */
+    fun rejectionReason(state: GameState, side: Side, cardId: String, target: PlayTarget?): String? {
+        if (state.matchOver) return "Match is already over"
+        if (state.turn != side) return "Not this player's turn"
         val player = state.player(side)
-        if (player.passed) return listOf(GameEvent.InvalidMove("Player has already passed this round"))
-        val card = player.hand.find { it.id == cardId }
-            ?: return listOf(GameEvent.InvalidMove("Card not in hand: $cardId"))
+        if (player.passed) return "Player has already passed this round"
+        val card = player.hand.find { it.id == cardId } ?: return "Card not in hand: $cardId"
 
-        val events = mutableListOf<GameEvent>()
         when (card.ability) {
             Ability.DECOY -> {
-                val decoyTarget = target as? PlayTarget.DecoyTarget
-                    ?: return listOf(GameEvent.InvalidMove("Decoy requires a target card"))
-                val boardCard = findOnBoard(player, decoyTarget.boardCardId)
-                    ?: return listOf(GameEvent.InvalidMove("Target is not on your board"))
-                if (boardCard.isHero) return listOf(GameEvent.InvalidMove("Heroes are immune to Decoy"))
+                val decoyTarget = target as? PlayTarget.DecoyTarget ?: return "Decoy requires a target card"
+                val boardCard = findOnBoard(player, decoyTarget.boardCardId) ?: return "Target is not on your board"
+                if (boardCard.isHero) return "Heroes are immune to Decoy"
+            }
+            Ability.MEDIC -> {
+                val reviveId = (target as? PlayTarget.MedicRevive)?.discardCardId
+                if (reviveId != null && player.discard.none { it.id == reviveId }) {
+                    return "Card not in discard: $reviveId"
+                }
+            }
+            else -> Unit
+        }
+        return null
+    }
 
+    fun canPass(state: GameState, side: Side): Boolean =
+        !state.matchOver && state.turn == side && !state.player(side).passed
+
+    fun playCard(state: GameState, side: Side, cardId: String, target: PlayTarget? = null): List<GameEvent> {
+        rejectionReason(state, side, cardId, target)?.let { return listOf(GameEvent.InvalidMove(it)) }
+
+        val player = state.player(side)
+        val card = player.hand.first { it.id == cardId }
+        val events = mutableListOf<GameEvent>()
+
+        when (card.ability) {
+            Ability.DECOY -> {
+                val boardCard = findOnBoard(player, (target as PlayTarget.DecoyTarget).boardCardId)!!
                 player.hand.remove(card)
                 player.board.getValue(boardCard.row).remove(boardCard)
                 player.hand.add(boardCard)
@@ -113,19 +140,18 @@ object GameEngine {
             Ability.SPY -> {
                 player.hand.remove(card)
                 state.player(side.other()).board.getValue(card.row).add(card)
-                drawCards(player, 2)
+                val drawn = drawCards(player, 2)
                 events += GameEvent.CardPlayed(side, card)
-                events += GameEvent.SpyInfiltrated(side, card, 2)
+                events += GameEvent.SpyInfiltrated(side, card, drawn)
             }
 
             Ability.MEDIC -> {
+                val reviveId = (target as? PlayTarget.MedicRevive)?.discardCardId
                 player.hand.remove(card)
                 player.board.getValue(card.row).add(card)
                 events += GameEvent.CardPlayed(side, card)
-                val revive = (target as? PlayTarget.MedicRevive)?.discardCardId
-                if (revive != null) {
-                    val revived = player.discard.find { it.id == revive }
-                        ?: return listOf(GameEvent.InvalidMove("Card not in discard: $revive"))
+                if (reviveId != null) {
+                    val revived = player.discard.first { it.id == reviveId }
                     player.discard.remove(revived)
                     player.hand.add(revived)
                     events += GameEvent.MedicRevived(side, revived)
@@ -152,7 +178,7 @@ object GameEngine {
     }
 
     fun pass(state: GameState, side: Side): List<GameEvent> {
-        if (state.matchWinner != null) return listOf(GameEvent.InvalidMove("Match is already over"))
+        if (state.matchOver) return listOf(GameEvent.InvalidMove("Match is already over"))
         if (state.turn != side) return listOf(GameEvent.InvalidMove("Not this player's turn"))
         val player = state.player(side)
         if (player.passed) return listOf(GameEvent.InvalidMove("Player has already passed this round"))
@@ -164,13 +190,16 @@ object GameEngine {
         return events
     }
 
-    private fun findOnBoard(player: PlayerState, cardId: String): Card? =
-        Row.entries.firstNotNullOfOrNull { row -> player.board.getValue(row).find { it.id == cardId } }
-
-    private fun drawCards(player: PlayerState, n: Int) {
+    /** Returns how many cards were actually drawn, which can be fewer than asked near deck-out. */
+    private fun drawCards(player: PlayerState, n: Int): Int {
+        var drawn = 0
         repeat(n) {
-            if (player.deck.isNotEmpty()) player.hand.add(player.deck.removeAt(player.deck.lastIndex))
+            if (player.deck.isNotEmpty()) {
+                player.hand.add(player.deck.removeAt(player.deck.lastIndex))
+                drawn++
+            }
         }
+        return drawn
     }
 
     private fun applyScorch(state: GameState): GameEvent.Scorched {
@@ -199,6 +228,9 @@ object GameEngine {
     private fun sideOf(state: GameState, card: Card): Side =
         if (Row.entries.any { state.playerA.board.getValue(it).contains(card) }) Side.A else Side.B
 
+    private fun findOnBoard(player: PlayerState, cardId: String): Card? =
+        Row.entries.firstNotNullOfOrNull { row -> player.board.getValue(row).find { it.id == cardId } }
+
     private fun advanceTurn(state: GameState) {
         val other = state.turn.other()
         state.turn = when {
@@ -218,24 +250,28 @@ object GameEngine {
             powerB > powerA -> Side.B
             else -> null
         }
-        winner?.let { state.player(it).roundsWon++ }
-        val result = RoundResult(state.round, powerA, powerB, winner)
-        state.roundHistory.add(result)
 
-        val events = mutableListOf<GameEvent>(GameEvent.RoundEnded(result))
-
-        val matchWinner = when {
-            state.playerA.roundsWon >= ROUNDS_TO_WIN -> Side.A
-            state.playerB.roundsWon >= ROUNDS_TO_WIN -> Side.B
-            state.round >= 3 -> if (state.playerA.roundsWon != state.playerB.roundsWon) {
-                if (state.playerA.roundsWon > state.playerB.roundsWon) Side.A else Side.B
-            } else null
-            else -> null
+        // A tied round costs both players a gem, as in Gwent.
+        when (winner) {
+            Side.A -> { state.playerA.roundsWon++; state.playerB.lives-- }
+            Side.B -> { state.playerB.roundsWon++; state.playerA.lives-- }
+            null -> { state.playerA.lives--; state.playerB.lives-- }
         }
 
-        if (matchWinner != null || state.round >= 3) {
-            state.matchWinner = matchWinner
-            events += GameEvent.MatchEnded(matchWinner)
+        val result = RoundResult(state.round, powerA, powerB, winner)
+        state.roundHistory.add(result)
+        val events = mutableListOf<GameEvent>(GameEvent.RoundEnded(result))
+
+        val aOut = state.playerA.lives <= 0
+        val bOut = state.playerB.lives <= 0
+        if (aOut || bOut) {
+            state.matchOver = true
+            state.matchWinner = when {
+                aOut && bOut -> null // both ran out in the same round: a drawn match
+                aOut -> Side.B
+                else -> Side.A
+            }
+            events += GameEvent.MatchEnded(state.matchWinner)
             return events
         }
 
@@ -244,13 +280,12 @@ object GameEngine {
         discardBoard(state.playerB)
         state.weatheredRows.clear()
 
+        // The player who lost the round opens the next one; after a draw the opener is unchanged.
         state.starter = winner?.other() ?: state.starter
         state.round++
         state.turn = state.starter
         state.playerA.passed = false
         state.playerB.passed = false
-        drawCards(state.playerA, ROUND_DRAW)
-        drawCards(state.playerB, ROUND_DRAW)
         events += GameEvent.RoundStarted(state.round)
         return events
     }

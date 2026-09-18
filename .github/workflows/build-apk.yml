@@ -44,8 +44,15 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run core tests
+      - name: Run engine tests
         run: ./gradlew :core:test --console=plain
+
+      # Compose smoke tests run under Robolectric. They must never block shipping an APK,
+      # but a failure here is the signal that a screen crashes on a real device.
+      - name: Run Compose UI smoke tests
+        continue-on-error: true
+        timeout-minutes: 12
+        run: ./gradlew :android:testDebugUnitTest --console=plain
 
       - name: Build debug APK
         run: ./gradlew :android:assembleDebug --console=plain

@@ -81,21 +81,12 @@ fun CardView(
     val shape = RoundedCornerShape(10.dp)
     val isEffect = card.ability == Ability.WEATHER || card.ability == Ability.CLEAR_WEATHER
 
-    val shimmer = rememberInfiniteTransition(label = "frame")
-    val sweep by shimmer.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(durationMillis = 3200, easing = LinearEasing)),
-        label = "sweep",
-    )
-
+    // Only heroes animate. The sweep is read during composition, so every card that owns an
+    // infinite transition recomposes each frame — fine for the couple of heroes on screen,
+    // wasteful for a whole hand.
     val frameBrush = when {
         selected -> Brush.linearGradient(listOf(GoldLight, Color(0xFFFFF6DA), GoldLight))
-        card.isHero -> Brush.linearGradient(
-            colors = listOf(GoldDeep, GoldLight, Color(0xFFB08A38), GoldLight, GoldDeep),
-            start = Offset(sweep * 260f - 130f, 0f),
-            end = Offset(sweep * 260f + 70f, 260f),
-        )
+        card.isHero -> heroFrameBrush()
         else -> MetalSilver
     }
 
@@ -242,6 +233,22 @@ fun CardView(
                 .border(if (selected || card.isHero) 2.dp else 1.dp, frameBrush, shape),
         )
     }
+}
+
+@Composable
+private fun heroFrameBrush(): Brush {
+    val shimmer = rememberInfiniteTransition(label = "hero-frame")
+    val sweep by shimmer.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 3200, easing = LinearEasing)),
+        label = "sweep",
+    )
+    return Brush.linearGradient(
+        colors = listOf(GoldDeep, GoldLight, Color(0xFFB08A38), GoldLight, GoldDeep),
+        start = Offset(sweep * 520f - 260f, 0f),
+        end = Offset(sweep * 520f + 140f, 520f),
+    )
 }
 
 /** Card back, for the opponent's hand. */

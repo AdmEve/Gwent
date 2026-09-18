@@ -26,11 +26,15 @@ official art assets.
 
 ## Gameplay
 
-Best-of-three rounds, three rows per side (Melee/Ranged/Siege), highest total
-power wins each round, two round wins (or best-of-3 after round 3) wins the
-match. Each match deals a shuffled hand from a themed deck (~20 cards);
-players draw more cards between rounds, and the board is discarded at the end
-of every round — like the game this is inspired by. Card mechanics:
+Three rows per side (Melee/Ranged/Siege). Highest total power wins the round.
+Each army starts with two gems: losing a round costs a gem, a tied round costs
+both players one, and running out of gems loses the match — so a match runs at
+most three rounds and can legitimately end in a draw.
+
+A coin toss decides who opens. Each player draws ten cards at the start and
+**that hand has to last the whole match** — there is no draw between rounds, so
+conceding a round you cannot win and saving the cards is a real play. The board
+is discarded at the end of every round. Card mechanics:
 
 - **Hero** — immune to Scorch, Weather, and Decoy.
 - **Horn** — doubles every non-hero unit in its row (including itself).
@@ -50,13 +54,23 @@ of every round — like the game this is inspired by. Card mechanics:
 - `core/` — pure-Kotlin game rules engine (cards, board, rounds, scoring,
   abilities, deck/discard/draw) plus a heuristic AI opponent and a terminal
   CLI to play against it. No Android dependency; builds and tests with plain
-  Gradle anywhere a JDK is available.
+  Gradle anywhere a JDK is available. Its test suite plays ~1,500 complete
+  simulated matches across every faction pairing, asserting that the AI never
+  picks a move the engine rejects — the UI drives the AI in a loop on the main
+  thread, so such a move is a frozen app.
 - `android/` — Jetpack Compose Android app (the actual APK target) that
   wraps `core` in a real UI: faction picker, row-based board with weather/
   power/ability indicators, hand, and target-selection flows for Decoy and
   Medic. Requires the Android SDK to configure, so it's only included in the
   Gradle build when one is detected (`ANDROID_HOME` / `ANDROID_SDK_ROOT` set,
   or a `local.properties` file present) — e.g. when opened in Android Studio.
+
+## Debugging without a device
+
+The app stores the stack trace of any uncaught exception and shows it on the
+next launch, so a crash can be read and reported rather than just vanishing.
+Compose smoke tests run under Robolectric in CI (`:android:testDebugUnitTest`)
+to catch a screen that throws or a turn loop that never terminates.
 
 ## Running
 
