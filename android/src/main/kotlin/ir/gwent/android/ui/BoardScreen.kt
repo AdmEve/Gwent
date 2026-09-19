@@ -86,19 +86,22 @@ fun BoardScreen(
                     Column(
                         modifier = Modifier.widthIn(max = 520.dp).fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
+                        // The far rows are narrower than the near ones, so they have to be
+                        // centred for the four of them to read as one receding plane.
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         BoardRow(them, Row.RANGED, engine, selectedHand, selectedTarget,
                             onTarget = { uid -> onUnitTapped(engine, them, uid, pendingOrder,
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            tag = "opp-ranged")
+                            tag = "opp-ranged", depth = 0)
                         BoardRow(them, Row.MELEE, engine, selectedHand, selectedTarget,
                             onTarget = { uid -> onUnitTapped(engine, them, uid, pendingOrder,
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            tag = "opp-melee")
+                            tag = "opp-melee", depth = 1)
 
                         CentreLine(state)
 
@@ -107,7 +110,7 @@ fun BoardScreen(
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            tag = "my-melee",
+                            tag = "my-melee", depth = 2,
                             onPlay = { r ->
                                 playSelected(engine, selectedHand, r, selectedTarget)
                                     .also { if (it) { selectedHand = null; selectedTarget = null } }
@@ -117,7 +120,7 @@ fun BoardScreen(
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            tag = "my-ranged",
+                            tag = "my-ranged", depth = 3,
                             onPlay = { r ->
                                 playSelected(engine, selectedHand, r, selectedTarget)
                                     .also { if (it) { selectedHand = null; selectedTarget = null } }
@@ -238,6 +241,8 @@ private fun ColumnScope.BoardRow(
     selectedTarget: Int?,
     onTarget: (Int?) -> Unit,
     tag: String,
+    /** 0 is the row furthest from the player, 3 the nearest. Drives the whole perspective. */
+    depth: Int,
     onPlay: ((Row) -> Boolean)? = null,
 ) {
     val units = player.rows.getValue(row)
@@ -246,8 +251,11 @@ private fun ColumnScope.BoardRow(
 
     Row(
         modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
+            // Width, height and card size all come from GWENT's own measurements: the nearest
+            // row is a quarter taller and an eighth wider than the furthest, which is the
+            // recession the flat board was missing.
+            .fillMaxWidth(GwentBoard.ROW_WIDTH[depth])
+            .weight(GwentBoard.ROW_WEIGHT[depth])
             // Deliberately no box. In GWENT a row is ground, and the ground runs unbroken from
             // one row into the next — the cards and the row marker say where a row is, not a
             // rule drawn round it. A row lights up only when the held card can be dropped on it.
@@ -265,7 +273,7 @@ private fun ColumnScope.BoardRow(
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RowScoreShield(player.scoreOf(row), row, effect)
+        RowMarker(row, effect)
         Row(
             modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
@@ -275,20 +283,26 @@ private fun ColumnScope.BoardRow(
                 BoardCardView(
                     unit = unit,
                     selected = selectedTarget == unit.uid,
+                    scale = GwentBoard.ROW_SCALE[depth],
                     onClick = { onTarget(if (selectedTarget == unit.uid) null else unit.uid) },
                 )
             }
         }
-        Spacer(Modifier.width(30.dp))
+        Spacer(Modifier.width(22.dp))
     }
 }
 
-/** The per-row score, plus a marker when weather or a hazard sits on the row. */
+/**
+ * The carved tile beside a row: which row it is, and any weather sitting on it.
+ *
+ * It carries no number. The reference keeps every score in the right-hand rail and leaves the
+ * board itself clear, which is also why the rows here have no boxes drawn round them.
+ */
 @Composable
-private fun RowScoreShield(score: Int, row: Row, effect: RowEffectKind?) {
+private fun RowMarker(row: Row, effect: RowEffectKind?) {
     Column(
         modifier = Modifier
-            .width(30.dp)
+            .width(22.dp)
             .padding(vertical = 4.dp, horizontal = 2.dp)
             .clip(RoundedCornerShape(2.dp))
             // A slab of stone set into the ground, the way the real board marks its rows —
@@ -306,9 +320,8 @@ private fun RowScoreShield(score: Int, row: Row, effect: RowEffectKind?) {
     ) {
         Text(
             if (row == Row.MELEE) "⚔" else "➹",
-            style = CardName.copy(color = GoldDeep, fontSize = 9.sp),
+            style = CardName.copy(color = GoldMuted, fontSize = 11.sp),
         )
-        Text(score.toString(), style = ScoreNumeral.copy(fontSize = 16.sp, color = GoldMuted))
         if (effect != null) {
             // A glyph rather than a clipped word: "FROS" told the player nothing.
             Text(
@@ -405,7 +418,15 @@ private fun ScoreRail(engine: GameEngine, onExit: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        TotalScore(them.score(), highlight = !leading && them.score() > 0, tag = "score-opponent")
+        // The rail reads top to bottom in the same order as the rows it describes, exactly as
+        // the reference does: each side's two row scores bracket its total, and the coin sits
+        // between the two sides.
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            RowScore(them.scoreOf(Row.RANGED), "rail-opp-ranged")
+            RowScore(them.scoreOf(Row.MELEE), "rail-opp-melee")
+            Spacer(Modifier.height(2.dp))
+            TotalScore(them.score(), highlight = !leading && them.score() > 0, tag = "score-opponent")
+        }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -432,8 +453,28 @@ private fun ScoreRail(engine: GameEngine, onExit: () -> Unit) {
             RailButton("EXIT", true, onExit)
         }
 
-        TotalScore(me.score(), highlight = leading, tag = "score-me")
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            TotalScore(me.score(), highlight = leading, tag = "score-me")
+            Spacer(Modifier.height(2.dp))
+            RowScore(me.scoreOf(Row.MELEE), "rail-my-melee")
+            RowScore(me.scoreOf(Row.RANGED), "rail-my-ranged")
+        }
     }
+}
+
+/**
+ * One row's score in the rail.
+ *
+ * Smaller than the total and without a frame, which is how the reference distinguishes the two:
+ * the big numeral is what you are racing on, the small ones say where it came from.
+ */
+@Composable
+private fun RowScore(score: Int, tag: String) {
+    Text(
+        text = score.toString(),
+        style = ScoreNumeral.copy(fontSize = 15.sp, color = Parchment.copy(alpha = 0.92f)),
+        modifier = Modifier.testTag(tag),
+    )
 }
 
 @Composable

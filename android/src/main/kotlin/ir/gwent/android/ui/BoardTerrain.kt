@@ -19,60 +19,97 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /*
- * The ground.
+ * The ground, seen in perspective.
  *
- * GWENT is not played on a black screen with boxes ruled onto it — it is played on a place. The
- * reference board is a forest clearing: a worn cobbled path running through the middle, packed
- * earth and moss either side of it, loose rock, grass pushing up between the stones, dead leaves,
- * roots crossing the soil, and warm light falling through a gap in the canopy onto the centre.
+ * GWENT's board is a plane lying away from the camera, not a flat backdrop: the earth converges
+ * toward the top of the screen, the stones of the path get smaller and closer together with
+ * distance, and the far end of the clearing goes cold and hazy while the near end stays warm.
+ * That recession is most of what makes the real board read as a place rather than a picture.
  *
- * None of that is a photograph here. It is drawn, every frame, out of a few hundred small vector
- * shapes whose positions come from a fixed seed — so the same board comes back identically on
- * every launch, and nothing has to be shipped as an asset. The layers are painted in the order
- * the real ground was made: soil, then what grew and fell on it, then what light reaches it.
+ * So nothing here is positioned in screen coordinates. Every stone, tuft and pebble is placed on
+ * the ground plane as (u, t) — u across, t away from the viewer — and projected. The projection
+ * is the ordinary one: an object's size falls off as 1/(1 + depth), and equal steps of ground
+ * bunch together toward the horizon because of it.
+ *
+ * Colours are sampled from CD PROJEKT RED's own in-game screenshots rather than invented: the
+ * real ground is a cool grey-green in the distance and a warm olive up close, which is why an
+ * orange-brown board never looked right no matter how much detail went into it.
  */
 
-/** Earth, stone and green. Sampled to sit under the existing gold-leaf palette. */
+/** Earth, stone and green, sampled from the reference screenshots. */
 object Ground {
-    val soilBlack = Color(0xFF0A0804)
-    val soilDeep = Color(0xFF1A1409)
-    val soilMid = Color(0xFF2E2213)
-    val soilWarm = Color(0xFF41301A)
-    val clay = Color(0xFF5B4123)
-    val dust = Color(0xFF6E5432)
+    // near earth — #433F2C / #453D35 in the reference
+    val soilNear = Color(0xFF4A4334)
+    val soilMid = Color(0xFF3A362B)
+    val soilDeep = Color(0xFF242A22)
+    val soilBlack = Color(0xFF0E1412)
+    val clay = Color(0xFF5C4E45)      // #5c4e45, the lit earth beside the melee rows
+    val dust = Color(0xFF6E6154)
 
-    val stoneDark = Color(0xFF26261F)
-    val stoneMid = Color(0xFF474438)
-    val stoneLit = Color(0xFF6C6654)
-    val stonePale = Color(0xFF908871)
+    // the cold, hazy far end — #111E1D / #253027
+    val distance = Color(0xFF141E1C)
 
-    val mossDeep = Color(0xFF16240F)
-    val mossMid = Color(0xFF2B4420)
-    val mossLit = Color(0xFF44622B)
-    val grassLit = Color(0xFF6B8B38)
-    val grassDry = Color(0xFF7C6B33)
+    val stoneDark = Color(0xFF26251F)
+    val stoneMid = Color(0xFF4C463C)
+    val stoneLit = Color(0xFF6E6154)
+    val stonePale = Color(0xFF8E8472)
 
-    val leafRust = Color(0xFF6B3F17)
-    val leafOchre = Color(0xFF8B6626)
+    val mossDeep = Color(0xFF1A2716)
+    val mossMid = Color(0xFF2F4224)
+    val mossLit = Color(0xFF466030)
+    val grassLit = Color(0xFF688A38)
+    val grassDry = Color(0xFF79683A)
+
+    val leafRust = Color(0xFF63401C)
+    val leafOchre = Color(0xFF84642C)
 }
 
-// --- scatter elements -------------------------------------------------------
+// --- scatter elements, already projected ------------------------------------
 
 private class Mottle(val c: Offset, val r: Float, val color: Color, val alpha: Float)
-private class Cobble(val path: Path, val cy: Float, val hh: Float, val tone: Float, val mossy: Boolean)
-private class Rock(val body: Path, val facet: Path, val c: Offset, val rx: Float, val ry: Float, val tone: Float)
+private class Cobble(val path: Path, val cy: Float, val hh: Float, val lit: Color, val mid: Color, val dark: Color)
+private class Rock(val body: Path, val facet: Path, val c: Offset, val rx: Float, val ry: Float, val lit: Color, val mid: Color)
 private class Tuft(val blades: List<Path>, val color: Color)
-private class Pebble(val c: Offset, val r: Float, val tone: Float)
+private class Pebble(val c: Offset, val r: Float, val color: Color)
 private class Leaf(val path: Path, val color: Color)
-private class Root(val path: Path, val width: Float)
+private class Root(val path: Path, val width: Float, val color: Color)
 
 /**
- * Everything on the ground, laid out once for a given size.
+ * The ground plane, laid out once for a given size.
  *
- * Generated in the constructor rather than in the draw pass: a board redraw is a tap, not a
- * frame loop, but allocating three hundred [Path]s per redraw would still be waste.
+ * Built in the constructor rather than in the draw pass: a board redraw is a tap, not a frame
+ * loop, but allocating several hundred [Path]s per redraw would still be waste.
  */
 private class GroundPlan(val w: Float, val h: Float, seed: Int) {
+
+    // --- the camera ---------------------------------------------------------
+    private val depth = GwentBoard.GROUND_DEPTH
+    private val scaleFar = 1f / (1f + depth)
+
+    /** How large something at ground depth [t] appears. 1 at the viewer's feet, less beyond. */
+    fun scaleAt(t: Float) = 1f / (1f + depth * t)
+
+    /** Where depth [t] lands on screen: 0 at the bottom edge, 1 at the horizon. */
+    private fun screenFrac(t: Float) = (1f - scaleAt(t)) / (1f - scaleFar)
+
+    fun yAt(t: Float) = h * (1f - screenFrac(t))
+
+    fun xAt(u: Float, t: Float) = w * 0.5f + (u - 0.5f) * w * scaleAt(t)
+
+    /** The inverse of [yAt]: which ground depth shows at this fraction down the screen. */
+    fun depthAtY(yFrac: Float): Float {
+        val s = 1f - (1f - yFrac) * (1f - scaleFar)
+        return ((1f / s) - 1f) / depth
+    }
+
+    /**
+     * Distance drains colour and warmth. Everything far away is mixed toward [Ground.distance]
+     * and dimmed, which is what separates the far rows from the near ones as strongly as size
+     * does — and what the flat board had none of.
+     */
+    private fun hazed(color: Color, t: Float) = mix(color, Ground.distance, t * 0.62f)
+
+    private fun hazeAlpha(t: Float) = 1f - t * 0.35f
 
     val mottles = ArrayList<Mottle>()
     val mossBeds = ArrayList<Mottle>()
@@ -84,154 +121,187 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
     val roots = ArrayList<Root>()
     val pathBed: Path
 
-    /*
-     * The path's two edges wander, so stone meets earth on an organic line. Two sine terms at
-     * different frequencies is enough — one alone reads as a ruled wave.
-     */
-    private fun wobble(x: Float, freq: Float, phase: Float): Float {
-        val t = x / w
-        return sin(t * freq + phase) * 0.62f + sin(t * freq * 2.7f + phase * 1.9f) * 0.38f
-    }
+    // The path carries both melee rows and the centre line between them; grass takes the two
+    // ranged rows and the hand. Both edges are read off the measured board rather than guessed.
+    private val pathNearT = depthAtY(GwentBoard.HAND_TOP - 0.055f)
+    private val pathFarT = depthAtY(GwentBoard.FIELD_TOP + 0.045f)
 
-    /*
-     * Where the stone runs. Placed against the board's own layout rather than the middle of the
-     * screen: the four rows occupy roughly the top three quarters, so the centre line between
-     * the two sides falls near 0.40 of the height. The path is laid over that, which puts both
-     * melee rows on stone and leaves the two ranged rows — and the hand below them — on grass,
-     * exactly as the reference board is arranged.
-     */
-    fun pathTop(x: Float) = h * 0.175f + wobble(x, 5.7f, 1.7f) * h * 0.032f
-    fun pathBottom(x: Float) = h * 0.625f + wobble(x, 4.9f, 4.2f) * h * 0.035f
+    private fun wobble(u: Float, freq: Float, phase: Float) =
+        sin(u * freq + phase) * 0.62f + sin(u * freq * 2.7f + phase * 1.9f) * 0.38f
+
+    private fun pathNear(u: Float) = pathNearT + wobble(u, 5.7f, 1.7f) * 0.022f
+    private fun pathFar(u: Float) = pathFarT + wobble(u, 4.9f, 4.2f) * 0.026f
 
     init {
         val rnd = Random(seed)
 
-        // --- soil: broken colour, so the earth is not a gradient ------------
-        val soils = listOf(Ground.soilDeep, Ground.soilMid, Ground.soilWarm, Ground.clay, Ground.soilBlack, Ground.dust)
-        repeat(130) {
-            val c = Offset(rnd.nextFloat() * w, rnd.nextFloat() * h)
-            mottles += Mottle(c, h * (0.04f + rnd.nextFloat() * 0.18f), soils.random(rnd), 0.08f + rnd.nextFloat() * 0.20f)
+        // The plane is generated wider than the screen: at the far end it is squeezed to half
+        // its near width, so u must run well past [0,1] or the top corners come out empty.
+        val uMin = -1.1f
+        val uMax = 2.1f
+        fun u(rnd: Random) = uMin + rnd.nextFloat() * (uMax - uMin)
+
+        // --- soil: broken colour, so the earth is not a gradient ---------------
+        val soils = listOf(Ground.soilMid, Ground.soilNear, Ground.soilDeep, Ground.clay, Ground.soilBlack, Ground.dust)
+        repeat(140) {
+            val t = rnd.nextFloat()
+            val c = Offset(xAt(u(rnd), t), yAt(t))
+            mottles += Mottle(
+                c = c,
+                r = h * (0.05f + rnd.nextFloat() * 0.20f) * scaleAt(t),
+                color = hazed(soils.random(rnd), t),
+                alpha = (0.10f + rnd.nextFloat() * 0.22f) * hazeAlpha(t),
+            )
         }
 
-        // --- moss beds: the green either side of the path -------------------
+        // --- moss, either side of the path --------------------------------------
         val mosses = listOf(Ground.mossDeep, Ground.mossMid, Ground.mossLit)
-        repeat(46) {
-            val cx = rnd.nextFloat() * w
-            val above = rnd.nextBoolean()
-            val cy = if (above) rnd.nextFloat() * pathTop(cx) else pathBottom(cx) + rnd.nextFloat() * (h - pathBottom(cx))
-            mossBeds += Mottle(Offset(cx, cy), h * (0.06f + rnd.nextFloat() * 0.16f), mosses.random(rnd), 0.14f + rnd.nextFloat() * 0.24f)
+        repeat(54) {
+            val uu = u(rnd)
+            val t = if (rnd.nextBoolean()) {
+                rnd.nextFloat() * pathNear(uu)
+            } else {
+                pathFar(uu) + rnd.nextFloat() * (1.05f - pathFar(uu))
+            }.coerceIn(0f, 1.05f)
+            mossBeds += Mottle(
+                c = Offset(xAt(uu, t), yAt(t)),
+                r = h * (0.07f + rnd.nextFloat() * 0.17f) * scaleAt(t),
+                color = hazed(mosses.random(rnd), t),
+                alpha = (0.16f + rnd.nextFloat() * 0.26f) * hazeAlpha(t),
+            )
         }
 
-        // --- the path bed: dark earth showing through every gap -------------
+        // --- the bed the stones are set into -------------------------------------
         pathBed = Path().apply {
-            val step = w / 56f
-            moveTo(0f, pathTop(0f))
-            var x = 0f
-            while (x <= w) { lineTo(x, pathTop(x)); x += step }
-            lineTo(w, pathTop(w))
-            lineTo(w, pathBottom(w))
-            x = w
-            while (x >= 0f) { lineTo(x, pathBottom(x)); x -= step }
-            lineTo(0f, pathBottom(0f))
+            val step = (uMax - uMin) / 60f
+            var uu = uMin
+            moveTo(xAt(uu, pathNear(uu)), yAt(pathNear(uu)))
+            while (uu <= uMax) { lineTo(xAt(uu, pathNear(uu)), yAt(pathNear(uu))); uu += step }
+            uu = uMax
+            while (uu >= uMin) { lineTo(xAt(uu, pathFar(uu)), yAt(pathFar(uu))); uu -= step }
             close()
         }
 
-        // --- cobbles --------------------------------------------------------
-        val stoneH = h * 0.050f
-        val stoneW = h * 0.080f
-        var y = h * 0.12f
+        // --- cobbles, laid on the plane so they converge with it -------------------
+        // Constant steps of ground depth, which the projection turns into the bands
+        // bunching up toward the far end all by itself.
+        val du = 0.080f
+        val dt = 0.052f
+        var t = 0f
         var band = 0
-        while (y < h * 0.70f) {
-            val stagger = if (band % 2 == 0) 0f else stoneW * 0.5f
-            var x = -stoneW + stagger
-            while (x < w + stoneW) {
-                val cx = x + (rnd.nextFloat() - 0.5f) * stoneW * 0.30f
-                val cy = y + (rnd.nextFloat() - 0.5f) * stoneH * 0.34f
-                val top = pathTop(cx)
-                val bottom = pathBottom(cx)
-                // A worn path is missing stones — a few in the middle, many at its edges.
+        while (t < 1.06f) {
+            val stagger = if (band % 2 == 0) 0f else du * 0.5f
+            var uu = uMin + stagger
+            // A stone is as tall as the gap to the next band and as wide as the gap to its
+            // neighbour, both already foreshortened by the projection.
+            val hhScreen = (yAt(t) - yAt(t + dt)) * 0.44f
+            val hwScreen = du * w * scaleAt(t) * 0.45f
+            while (uu < uMax) {
+                val cu = uu + (rnd.nextFloat() - 0.5f) * du * 0.30f
+                val ct = t + (rnd.nextFloat() - 0.5f) * dt * 0.32f
+                val near = pathNear(cu)
+                val far = pathFar(cu)
                 val keep = when {
-                    cy > top + stoneH * 0.4f && cy < bottom - stoneH * 0.4f -> rnd.nextFloat() > 0.09f
-                    cy > top - stoneH && cy < bottom + stoneH -> rnd.nextFloat() > 0.64f
+                    ct > near + dt * 0.4f && ct < far - dt * 0.4f -> rnd.nextFloat() > 0.09f
+                    ct > near - dt && ct < far + dt -> rnd.nextFloat() > 0.64f
                     else -> false
                 }
-                if (keep) {
-                    val hw = stoneW * (0.36f + rnd.nextFloat() * 0.13f)
-                    val hh = stoneH * (0.36f + rnd.nextFloat() * 0.15f)
+                if (keep && hhScreen > 0.6f) {
+                    val cx = xAt(cu, ct)
+                    val cy = yAt(ct)
+                    val tone = 0.70f + rnd.nextFloat() * 0.58f
                     cobbles += Cobble(
-                        path = blob(cx, cy, hw, hh, 7, 0.28f, rnd),
+                        path = blob(cx, cy, hwScreen * (0.80f + rnd.nextFloat() * 0.28f),
+                            hhScreen * (0.80f + rnd.nextFloat() * 0.30f), 7, 0.28f, rnd),
                         cy = cy,
-                        hh = hh,
-                        tone = 0.68f + rnd.nextFloat() * 0.62f,
-                        mossy = rnd.nextFloat() < 0.16f,
+                        hh = hhScreen,
+                        lit = hazed(Ground.stoneLit.shade(tone), ct),
+                        mid = hazed(Ground.stoneMid.shade(tone), ct),
+                        dark = hazed(Ground.stoneDark.shade(tone * 0.9f), ct),
                     )
                 }
-                x += stoneW
+                uu += du
             }
-            y += stoneH
+            t += dt
             band++
         }
 
-        // --- loose rock ------------------------------------------------------
-        repeat(38) {
-            val c = Offset(rnd.nextFloat() * w, h * 0.04f + rnd.nextFloat() * h * 0.92f)
-            val rx = h * (0.016f + rnd.nextFloat() * 0.032f)
-            val ry = rx * (0.58f + rnd.nextFloat() * 0.34f)
+        // --- loose rock -------------------------------------------------------------
+        repeat(42) {
+            val tt = rnd.nextFloat()
+            val c = Offset(xAt(u(rnd), tt), yAt(tt))
+            val rx = h * (0.018f + rnd.nextFloat() * 0.034f) * scaleAt(tt)
+            val ry = rx * (0.56f + rnd.nextFloat() * 0.34f)
+            val tone = 0.72f + rnd.nextFloat() * 0.54f
             rocks += Rock(
                 body = blob(c.x, c.y, rx, ry, 9, 0.32f, rnd),
                 facet = blob(c.x - rx * 0.24f, c.y - ry * 0.28f, rx * 0.50f, ry * 0.44f, 7, 0.36f, rnd),
                 c = c, rx = rx, ry = ry,
-                tone = 0.72f + rnd.nextFloat() * 0.56f,
+                lit = hazed(Ground.stoneLit.shade(tone), tt),
+                mid = hazed(Ground.stoneMid.shade(tone), tt),
             )
         }
 
-        // --- gravel ----------------------------------------------------------
-        repeat(260) {
+        // --- gravel -------------------------------------------------------------------
+        repeat(300) {
+            val tt = rnd.nextFloat()
             pebbles += Pebble(
-                Offset(rnd.nextFloat() * w, rnd.nextFloat() * h),
-                h * (0.0022f + rnd.nextFloat() * 0.0055f),
-                0.55f + rnd.nextFloat() * 0.85f,
+                c = Offset(xAt(u(rnd), tt), yAt(tt)),
+                r = (h * (0.0026f + rnd.nextFloat() * 0.0062f) * scaleAt(tt)).coerceAtLeast(0.5f),
+                color = hazed(Ground.stoneMid.shade(0.6f + rnd.nextFloat() * 0.8f), tt)
+                    .copy(alpha = 0.55f * hazeAlpha(tt)),
             )
         }
 
-        // --- roots and twigs across the soil ---------------------------------
-        repeat(15) {
-            val x0 = -w * 0.06f + rnd.nextFloat() * w
-            val y0 = rnd.nextFloat() * h
-            val len = w * (0.10f + rnd.nextFloat() * 0.28f)
-            fun drift() = (rnd.nextFloat() - 0.5f) * h * 0.11f
+        // --- roots crossing the soil ------------------------------------------------
+        repeat(16) {
+            val tt = rnd.nextFloat()
+            val u0 = u(rnd)
+            val len = (uMax - uMin) * (0.08f + rnd.nextFloat() * 0.20f)
+            fun drift() = (rnd.nextFloat() - 0.5f) * 0.06f
             roots += Root(
-                Path().apply {
-                    moveTo(x0, y0)
-                    cubicTo(x0 + len * 0.30f, y0 + drift(), x0 + len * 0.68f, y0 + drift(), x0 + len, y0 + drift() * 0.5f)
+                path = Path().apply {
+                    moveTo(xAt(u0, tt), yAt(tt))
+                    cubicTo(
+                        xAt(u0 + len * 0.30f, tt + drift()), yAt(tt + drift()),
+                        xAt(u0 + len * 0.68f, tt + drift()), yAt(tt + drift()),
+                        xAt(u0 + len, tt), yAt(tt + drift() * 0.5f),
+                    )
                 },
-                h * (0.0035f + rnd.nextFloat() * 0.0065f),
+                width = (h * (0.004f + rnd.nextFloat() * 0.007f) * scaleAt(tt)).coerceAtLeast(0.7f),
+                color = hazed(Ground.clay, tt).copy(alpha = 0.45f * hazeAlpha(tt)),
             )
         }
 
-        // --- fallen leaves ----------------------------------------------------
+        // --- leaf litter ----------------------------------------------------------------
         val leafTones = listOf(Ground.leafRust, Ground.leafOchre, Ground.grassDry, Ground.clay)
-        repeat(70) {
-            val c = Offset(rnd.nextFloat() * w, rnd.nextFloat() * h)
-            val len = h * (0.012f + rnd.nextFloat() * 0.020f)
-            leaves += Leaf(leafPath(c, len, len * (0.34f + rnd.nextFloat() * 0.26f), rnd.nextFloat() * PI.toFloat()), leafTones.random(rnd))
+        repeat(80) {
+            val tt = rnd.nextFloat()
+            val c = Offset(xAt(u(rnd), tt), yAt(tt))
+            val len = h * (0.013f + rnd.nextFloat() * 0.021f) * scaleAt(tt)
+            leaves += Leaf(
+                path = leafPath(c, len, len * (0.34f + rnd.nextFloat() * 0.26f), rnd.nextFloat() * PI.toFloat()),
+                color = hazed(leafTones.random(rnd), tt).copy(alpha = 0.44f * hazeAlpha(tt)),
+            )
         }
 
-        // --- grass ------------------------------------------------------------
-        repeat(175) {
-            val cx = rnd.nextFloat() * w
-            val top = pathTop(cx)
-            val bottom = pathBottom(cx)
+        // --- grass -------------------------------------------------------------------------
+        repeat(200) {
+            val uu = u(rnd)
+            val near = pathNear(uu)
+            val far = pathFar(uu)
             // Grass belongs off the path, creeps back over its edges, and sprouts in its gaps.
-            val cy = when (rnd.nextInt(10)) {
-                0, 1, 2 -> rnd.nextFloat() * top
-                3, 4, 5 -> bottom + rnd.nextFloat() * (h - bottom)
-                6, 7 -> top + (rnd.nextFloat() - 0.5f) * h * 0.07f
-                8 -> bottom + (rnd.nextFloat() - 0.5f) * h * 0.07f
-                else -> top + rnd.nextFloat() * (bottom - top)
-            }.coerceIn(h * 0.01f, h * 0.99f)
+            val tt = when (rnd.nextInt(10)) {
+                0, 1, 2 -> rnd.nextFloat() * near
+                3, 4, 5 -> far + rnd.nextFloat() * (1.05f - far)
+                6, 7 -> near + (rnd.nextFloat() - 0.5f) * 0.06f
+                8 -> far + (rnd.nextFloat() - 0.5f) * 0.06f
+                else -> near + rnd.nextFloat() * (far - near)
+            }.coerceIn(0f, 1.05f)
 
-            val clump = h * (0.018f + rnd.nextFloat() * 0.042f)
+            val cx = xAt(uu, tt)
+            val cy = yAt(tt)
+            val clump = h * (0.020f + rnd.nextFloat() * 0.044f) * scaleAt(tt)
             val blades = ArrayList<Path>(7)
             repeat(3 + rnd.nextInt(4)) {
                 blades += bladePath(
@@ -248,12 +318,12 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
                 6, 7 -> Ground.mossLit
                 else -> Ground.grassLit
             }
-            tufts += Tuft(blades, tone)
+            tufts += Tuft(blades, hazed(tone, tt).copy(alpha = 0.82f * hazeAlpha(tt)))
         }
     }
 }
 
-// --- shape helpers ----------------------------------------------------------
+// --- shape and colour helpers -----------------------------------------------
 
 /** An irregular closed polygon. Straight edges, because stone has facets. */
 private fun blob(cx: Float, cy: Float, rx: Float, ry: Float, points: Int, jitter: Float, rnd: Random): Path {
@@ -271,7 +341,7 @@ private fun blob(cx: Float, cy: Float, rx: Float, ry: Float, points: Int, jitter
 
 /** One blade of grass: wide at the root, a point at the tip, leaning as it rises. */
 private fun bladePath(bx: Float, by: Float, hgt: Float, lean: Float): Path {
-    val bw = (hgt * 0.11f).coerceAtLeast(0.6f)
+    val bw = (hgt * 0.11f).coerceAtLeast(0.5f)
     val tipX = bx + lean * hgt
     val tipY = by - hgt
     val c1x = bx + lean * hgt * 0.10f
@@ -305,7 +375,7 @@ private fun leafPath(c: Offset, len: Float, wid: Float, rot: Float): Path {
     }
 }
 
-/** Multiplies a colour's brightness, so one stone palette can carry a hundred stones. */
+/** Multiplies a colour's brightness, so one stone palette can carry hundreds of stones. */
 private fun Color.shade(f: Float) = Color(
     red = (red * f).coerceIn(0f, 1f),
     green = (green * f).coerceIn(0f, 1f),
@@ -313,19 +383,30 @@ private fun Color.shade(f: Float) = Color(
     alpha = alpha,
 )
 
+/** Blends two colours. Used for aerial perspective, which is most of the sense of depth. */
+private fun mix(a: Color, b: Color, f: Float): Color {
+    val g = f.coerceIn(0f, 1f)
+    return Color(
+        red = a.red + (b.red - a.red) * g,
+        green = a.green + (b.green - a.green) * g,
+        blue = a.blue + (b.blue - a.blue) * g,
+        alpha = a.alpha,
+    )
+}
+
 // --- the composable ---------------------------------------------------------
 
 /**
- * Paints the battlefield floor. Fills whatever it is given; the board's contents are drawn over
- * the top of it.
+ * Paints the battlefield floor in perspective. Fills whatever it is given; everything else on
+ * the board is drawn over the top of it.
  */
 @Composable
 fun BoardTerrain(modifier: Modifier = Modifier, seed: Int = 1257) {
     BoxWithConstraints(modifier) {
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        // Off-device the board is occasionally measured before it has a size; painting a plan
-        // built from a zero or unbounded box would divide by zero.
+        // Off-device the board is occasionally measured before it has a size, and a plan built
+        // from a zero or unbounded box would divide by zero.
         if (w > 1f && h > 1f && w < 20_000f && h < 20_000f) {
             val plan = remember(w, h, seed) { GroundPlan(w, h, seed) }
             Canvas(Modifier.fillMaxSize()) { drawGround(plan) }
@@ -337,140 +418,114 @@ private fun DrawScope.drawGround(plan: GroundPlan) {
     val w = plan.w
     val h = plan.h
 
-    // 1. bare earth, dark at the far and near edges, warm through the middle
+    // 1. bare earth: cold and dark at the horizon, warm olive at the viewer's feet
     drawRect(
         Brush.verticalGradient(
-            0.00f to Ground.soilBlack,
-            0.15f to Ground.soilDeep,
-            0.34f to Ground.soilMid,
-            0.50f to Ground.soilWarm,
-            0.66f to Ground.soilMid,
-            0.85f to Ground.soilDeep,
-            1.00f to Ground.soilBlack,
+            0.00f to Ground.distance,
+            0.14f to Ground.soilDeep,
+            0.38f to Ground.soilMid,
+            0.62f to Ground.soilNear,
+            0.84f to Ground.soilMid,
+            1.00f to Ground.soilDeep,
         ),
     )
 
     // 2. broken colour in the soil
-    plan.mottles.forEach { m ->
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to m.color.copy(alpha = m.alpha),
-                1f to Color.Transparent,
-                center = m.c,
-                radius = m.r,
-            ),
-            radius = m.r,
-            center = m.c,
-        )
-    }
+    plan.mottles.forEach { m -> softBlob(m) }
 
-    // 3. moss, either side of where the path will go
-    plan.mossBeds.forEach { m ->
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to m.color.copy(alpha = m.alpha),
-                0.7f to m.color.copy(alpha = m.alpha * 0.45f),
-                1f to Color.Transparent,
-                center = m.c,
-                radius = m.r,
-            ),
-            radius = m.r,
-            center = m.c,
-        )
-    }
+    // 3. moss, either side of the path
+    plan.mossBeds.forEach { m -> softBlob(m) }
 
     // 4. the bed the stones are set into, so every gap reads as dirt
-    drawPath(plan.pathBed, Ground.soilBlack.copy(alpha = 0.62f))
-    drawPath(plan.pathBed, Ground.dust.copy(alpha = 0.10f), style = Stroke(width = h * 0.012f))
+    drawPath(plan.pathBed, Ground.soilBlack.copy(alpha = 0.55f))
 
-    // 5. the cobbles
+    // 5. the cobbles, converging with the plane
     plan.cobbles.forEach { c ->
         drawPath(
             c.path,
-            Brush.verticalGradient(
-                listOf(
-                    Ground.stoneLit.shade(c.tone),
-                    Ground.stoneMid.shade(c.tone),
-                    Ground.stoneDark.shade(c.tone * 0.88f),
-                ),
-                startY = c.cy - c.hh,
-                endY = c.cy + c.hh,
-            ),
+            Brush.verticalGradient(listOf(c.lit, c.mid, c.dark), startY = c.cy - c.hh, endY = c.cy + c.hh),
         )
         // The mortar gap is the shadow between stones, and is what makes them read as separate.
-        drawPath(c.path, Ground.soilBlack.copy(alpha = 0.80f), style = Stroke(width = 1.2f))
-        if (c.mossy) drawPath(c.path, Ground.mossMid.copy(alpha = 0.34f))
+        drawPath(c.path, Ground.soilBlack.copy(alpha = 0.72f), style = Stroke(width = 1f))
     }
 
     // 6. loose rock, each sitting in its own shadow
     plan.rocks.forEach { r ->
         drawOval(
-            color = Ground.soilBlack.copy(alpha = 0.45f),
+            color = Ground.soilBlack.copy(alpha = 0.42f),
             topLeft = Offset(r.c.x - r.rx * 1.2f, r.c.y + r.ry * 0.15f),
-            size = Size(r.rx * 2.4f, r.ry * 1.0f),
+            size = Size(r.rx * 2.4f, r.ry),
         )
         drawPath(
             r.body,
-            Brush.verticalGradient(
-                listOf(Ground.stoneLit.shade(r.tone), Ground.stoneMid.shade(r.tone), Ground.stoneDark.shade(r.tone * 0.8f)),
-                startY = r.c.y - r.ry,
-                endY = r.c.y + r.ry,
-            ),
+            Brush.verticalGradient(listOf(r.lit, r.mid, Ground.stoneDark), startY = r.c.y - r.ry, endY = r.c.y + r.ry),
         )
-        drawPath(r.facet, Ground.stonePale.copy(alpha = 0.18f))
-        drawPath(r.body, Ground.soilBlack.copy(alpha = 0.55f), style = Stroke(width = 1f))
+        drawPath(r.facet, Ground.stonePale.copy(alpha = 0.16f))
+        drawPath(r.body, Ground.soilBlack.copy(alpha = 0.5f), style = Stroke(width = 1f))
     }
 
     // 7. gravel
-    plan.pebbles.forEach { p ->
-        drawCircle(Ground.stoneMid.shade(p.tone).copy(alpha = 0.55f), radius = p.r, center = p.c)
-    }
+    plan.pebbles.forEach { p -> drawCircle(p.color, radius = p.r, center = p.c) }
 
     // 8. roots crossing the ground
     plan.roots.forEach { r ->
-        drawPath(r.path, Ground.soilBlack.copy(alpha = 0.55f), style = Stroke(width = r.width * 1.7f))
-        drawPath(r.path, Ground.clay.copy(alpha = 0.40f), style = Stroke(width = r.width))
+        drawPath(r.path, Ground.soilBlack.copy(alpha = 0.5f), style = Stroke(width = r.width * 1.7f))
+        drawPath(r.path, r.color, style = Stroke(width = r.width))
     }
 
     // 9. leaf litter
-    plan.leaves.forEach { l -> drawPath(l.path, l.color.copy(alpha = 0.42f)) }
+    plan.leaves.forEach { l -> drawPath(l.path, l.color) }
 
     // 10. grass, last of the ground layers because it stands above all of it
     plan.tufts.forEach { t ->
         t.blades.forEachIndexed { i, blade ->
-            // One dark blade behind the clump is enough to seat it in the soil; painting a
-            // shadow under every blade doubles the work for a difference no one can see.
-            if (i == 0) drawPath(blade, Ground.soilBlack.copy(alpha = 0.55f))
-            drawPath(blade, t.color.copy(alpha = 0.80f))
+            // One dark blade behind the clump seats it in the soil; a shadow under every blade
+            // doubles the work for a difference no one can see.
+            if (i == 0) drawPath(blade, Ground.soilBlack.copy(alpha = 0.5f))
+            drawPath(blade, t.color)
         }
     }
 
-    // 11. the light that reaches the clearing
+    // 11. the light that reaches the clearing, over the play rather than the window
     drawRect(
         Brush.radialGradient(
-            0.00f to Color(0x26FFE7AC),
-            0.42f to Color(0x12F2D79C),
+            0.00f to Color(0x24FFE7AC),
+            0.42f to Color(0x10F2D79C),
             1.00f to Color.Transparent,
-            center = Offset(w * 0.5f, h * 0.40f),
-            radius = maxOf(w, h) * 0.60f,
+            center = Offset(w * 0.5f, h * GwentBoard.CENTRE_LINE),
+            radius = maxOf(w, h) * 0.58f,
         ),
     )
 
     // 12. and the dark it falls away into
     drawRect(
         Brush.radialGradient(
-            0.52f to Color.Transparent,
-            1.00f to Color(0xDB070604),
-            center = Offset(w * 0.5f, h * 0.42f),
-            radius = maxOf(w, h) * 0.76f,
+            0.50f to Color.Transparent,
+            1.00f to Color(0xDE060907),
+            center = Offset(w * 0.5f, h * 0.46f),
+            radius = maxOf(w, h) * 0.74f,
         ),
     )
     drawRect(
         Brush.verticalGradient(
-            0.00f to Color(0xC2050403),
-            0.13f to Color.Transparent,
-            0.87f to Color.Transparent,
-            1.00f to Color(0xC2050403),
+            0.00f to Color(0xD1060A09),
+            0.16f to Color.Transparent,
+            0.88f to Color.Transparent,
+            1.00f to Color(0xB3060A09),
         ),
+    )
+}
+
+private fun DrawScope.softBlob(m: Mottle) {
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to m.color.copy(alpha = m.alpha),
+            0.7f to m.color.copy(alpha = m.alpha * 0.45f),
+            1f to Color.Transparent,
+            center = m.c,
+            radius = m.r,
+        ),
+        radius = m.r,
+        center = m.c,
     )
 }

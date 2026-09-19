@@ -24,14 +24,18 @@ import androidx.compose.ui.unit.sp
 import ir.gwent.core.model.*
 
 /**
- * Card sizes.
+ * Card sizes, taken from the measured board.
  *
- * Tuned for a phone in landscape (~891x411dp). Four rows and a hand have to share 411dp of
- * height, which is what caps the board card — but the cards still need to dominate the board
- * rather than float in it, so they take most of each row band.
+ * In GWENT's own screenshots a card on the nearest row is 133x177 of 1920x1080 — 16.4% of the
+ * screen's height, at an aspect of 0.751. Height is what is fixed here and width follows from
+ * the aspect, because a phone in landscape is proportionally wider than a 16:9 monitor and
+ * matching the width instead would give squat cards.
+ *
+ * These are the size of a card on the NEAREST row; rows further away are scaled down by
+ * [GwentBoard.ROW_SCALE].
  */
-val CardWidth = 48.dp
-val CardHeight = 66.dp
+val CardHeight = 67.dp
+val CardWidth = CardHeight * GwentBoard.CARD_ASPECT
 
 /**
  * How much of a board card's footprint is given over to the shadow it throws on the ground.
@@ -113,30 +117,35 @@ private fun statusGlyph(status: Status): Pair<String, Color>? = when (status) {
 fun BoardCardView(
     unit: UnitInstance,
     selected: Boolean = false,
+    /** 1 on the nearest row, less further away. See [GwentBoard.ROW_SCALE]. */
+    scale: Float = 1f,
     onClick: (() -> Unit)? = null,
 ) {
-    Box(modifier = Modifier.size(CardWidth, CardHeight), contentAlignment = Alignment.TopCenter) {
+    val cardW = CardWidth * scale
+    val cardH = CardHeight * scale
+    val drop = ContactShadow * scale
+
+    Box(modifier = Modifier.size(cardW, cardH), contentAlignment = Alignment.TopCenter) {
         // A card standing on soil throws a shadow onto it. Without one the card reads as pasted
-        // over the ground rather than placed on it, which is most of what made the old board
-        // look like a form laid on black.
+        // over the ground rather than placed on it.
         Canvas(Modifier.fillMaxSize()) {
-            val drop = ContactShadow.toPx()
+            val d = drop.toPx()
             drawOval(
                 brush = Brush.radialGradient(
                     0.0f to Color(0xA8000000),
                     0.6f to Color(0x52000000),
                     1.0f to Color.Transparent,
-                    center = Offset(size.width * 0.5f, size.height - drop * 0.7f),
+                    center = Offset(size.width * 0.5f, size.height - d * 0.7f),
                     radius = size.width * 0.66f,
                 ),
-                topLeft = Offset(-size.width * 0.12f, size.height - drop * 1.9f),
-                size = Size(size.width * 1.24f, drop * 2.1f),
+                topLeft = Offset(-size.width * 0.12f, size.height - d * 1.9f),
+                size = Size(size.width * 1.24f, d * 2.1f),
             )
         }
 
         Box(
             modifier = Modifier
-                .size(CardWidth, CardHeight - ContactShadow)
+                .size(cardW, cardH - drop)
                 .clip(RoundedCornerShape(3.dp))
                 .background(cardArt(unit.card.faction))
                 .border(
@@ -147,34 +156,26 @@ fun BoardCardView(
                 .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
         ) {
             CardSigil(unit.card, Modifier.fillMaxSize())
-            PowerGem(unit.power, unit.basePower, 21.dp)
+
+            // GWENT puts nothing on a board card but its art, the power gem in the top-left
+            // corner, and a row of small status icons along the foot. There is deliberately no
+            // name plate here — the real game has none, and the inspector is one tap away.
+            PowerGem(unit.power, unit.basePower, cardW * 0.40f)
 
             if (unit.armor > 0) {
-                Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) { ArmorPip(unit.armor, 15.dp) }
-            }
-
-            Row(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 13.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                unit.statuses.keys.mapNotNull { statusGlyph(it) }.take(4).forEach { (glyph, tint) ->
-                    Text(glyph, style = CardName.copy(color = tint, fontSize = 8.sp))
+                Box(Modifier.align(Alignment.TopEnd).padding(1.dp)) {
+                    ArmorPip(unit.armor, cardW * 0.30f)
                 }
             }
 
-            Text(
-                text = unit.card.name,
-                style = CardName.copy(fontSize = 7.sp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                lineHeight = 8.sp,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(NamePlate)
-                    .padding(horizontal = 1.dp, vertical = 1.dp),
-            )
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
+                unit.statuses.keys.mapNotNull { statusGlyph(it) }.take(4).forEach { (glyph, tint) ->
+                    Text(glyph, style = CardName.copy(color = tint, fontSize = (cardW.value * 0.17f).sp))
+                }
+            }
         }
     }
 }
