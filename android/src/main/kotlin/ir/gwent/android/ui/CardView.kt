@@ -135,7 +135,7 @@ fun BoardCardView(
         Text(
             text = unit.card.name,
             style = CardName.copy(fontSize = 7.sp),
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
             lineHeight = 8.sp,

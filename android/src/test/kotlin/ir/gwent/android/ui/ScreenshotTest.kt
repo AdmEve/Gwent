@@ -91,6 +91,12 @@ class ScreenshotTest {
     }
 
     @Test
+    fun `01b deck builder`() {
+        show { DeckBuilderScreen(Leaders.FOLTEST, onPlay = {}, onBack = {}) }
+        shoot("01b-deck-builder")
+    }
+
+    @Test
     fun `02 mulligan`() {
         val e = engine()
         show { MulliganScreen(e) {} }

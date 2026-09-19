@@ -8,12 +8,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import ir.gwent.android.ui.BoardScreen
+import ir.gwent.android.ui.DeckBuilderScreen
 import ir.gwent.android.ui.FactionPickerScreen
 import ir.gwent.android.ui.GwentTheme
 import ir.gwent.android.ui.MulliganScreen
 import ir.gwent.core.ai.SimpleAi
 import ir.gwent.core.engine.GameEngine
 import ir.gwent.core.model.CardDatabase
+import ir.gwent.core.model.Deck
 import ir.gwent.core.model.Leader
 import ir.gwent.core.model.Side
 
@@ -28,7 +30,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Phase { PICK, MULLIGAN, BOARD }
+private enum class Phase { PICK, BUILD, MULLIGAN, BOARD }
 
 @Composable
 fun AppRoot() {
@@ -38,17 +40,34 @@ fun AppRoot() {
     // The engine mutates in place, so the board needs an explicit nudge to recompose.
     var revision by remember { mutableIntStateOf(0) }
 
+    var myLeader by remember { mutableStateOf<Leader?>(null) }
+    var theirLeader by remember { mutableStateOf<Leader?>(null) }
+
     when (phase) {
         Phase.PICK -> FactionPickerScreen { mine: Leader, theirs: Leader ->
-            val e = GameEngine.start(
-                CardDatabase.starterDeck(mine),
-                CardDatabase.starterDeck(theirs),
+            myLeader = mine
+            theirLeader = theirs
+            // Building the deck is the point of provisions, so it sits between choosing a
+            // leader and playing rather than being generated behind the player's back.
+            phase = Phase.BUILD
+        }
+
+        Phase.BUILD -> myLeader?.let { mine ->
+            DeckBuilderScreen(
+                leader = mine,
+                onBack = { phase = Phase.PICK },
+                onPlay = { deck: Deck ->
+                    val e = GameEngine.start(
+                        deck,
+                        CardDatabase.starterDeck(theirLeader ?: mine),
+                    )
+                    val ai = SimpleAi(Side.B)
+                    ai.mulligan(e)
+                    engine = e
+                    opponent = ai
+                    phase = Phase.MULLIGAN
+                },
             )
-            val ai = SimpleAi(Side.B)
-            ai.mulligan(e)
-            engine = e
-            opponent = ai
-            phase = Phase.MULLIGAN
         }
 
         Phase.MULLIGAN -> engine?.let { e ->
