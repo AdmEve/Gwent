@@ -19,8 +19,12 @@ object CardDatabase {
         armor: Int = 0,
         tags: Set<Tag> = emptySet(),
         abilities: List<Ability> = emptyList(),
+        innate: Set<Status> = emptySet(),
         text: String = "",
-    ) = Card(id, name, faction, CardType.UNIT, color, provisions, power, armor, tags, abilities, text = text)
+    ) = Card(
+        id, name, faction, CardType.UNIT, color, provisions, power, armor, tags, abilities,
+        innateStatuses = innate, text = text,
+    )
 
     private fun special(
         id: String,
@@ -85,6 +89,23 @@ object CardDatabase {
         unit("neu_roach", "Roach", Faction.NEUTRAL, 5, 5, tags = setOf(Tag.BEAST)),
         special("neu_clear", "Clear Skies", Faction.NEUTRAL, 5, tags = setOf(Tag.SPELL),
             effect = Effect.ClearWeather, text = "Clear all weather from your side."),
+        special("neu_yrden", "Yrden", Faction.NEUTRAL, 6, tags = setOf(Tag.SPELL),
+            effect = Effect.Reset, text = "Reset a unit to its base power."),
+        special("neu_corruption", "Curse of Corruption", Faction.NEUTRAL, 7, color = CardColor.GOLD,
+            tags = setOf(Tag.SPELL), effect = Effect.Banish,
+            text = "Banish an enemy unit. It does not go to the graveyard."),
+        special("neu_white_honey", "White Honey", Faction.NEUTRAL, 4, tags = setOf(Tag.ALCHEMY),
+            effect = Effect.Purify, text = "Purify an allied unit, removing all statuses."),
+        Card(
+            "neu_summoning_circle", "Summoning Circle", Faction.NEUTRAL, CardType.ARTIFACT,
+            CardColor.GOLD, 8, 0, 0, setOf(Tag.ITEM),
+            listOf(Ability(Trigger.ORDER, Effect.Resurrect, charges = 1, cooldown = 2)),
+            text = "Artifact. Order: Resurrect your strongest fallen unit. Scores no points.",
+        ),
+        unit("neu_gaunter", "Gaunter O'Dimm", Faction.NEUTRAL, 8, 11, color = CardColor.GOLD,
+            tags = setOf(Tag.CURSED),
+            innate = setOf(Status.IMMUNITY),
+            text = "Immunity. Cannot be targeted directly."),
     )
 
     // ------------------------------------------------------------- factions
@@ -128,6 +149,15 @@ object CardDatabase {
         special("mon_fog", "Impenetrable Fog", Faction.MONSTERS, 6, tags = setOf(Tag.SPELL, Tag.HAZARD),
             effect = Effect.Weather(RowEffectKind.FOG),
             text = "Apply Fog to an enemy row: damages its lowest unit by 2 each turn."),
+        unit("mon_noonwraith", "Noonwraith", Faction.MONSTERS, 4, 6, tags = setOf(Tag.SPECTER),
+            abilities = listOf(Ability(Trigger.DEATHWISH, Effect.Summon("mon_ghoul"))),
+            text = "Deathwish: Summon a Ghoul."),
+        unit("mon_rotfiend", "Rotfiend", Faction.MONSTERS, 5, 7, tags = setOf(Tag.NECROPHAGE),
+            abilities = listOf(Ability(Trigger.DEATHWISH, Effect.Damage(3))),
+            text = "Deathwish: Damage an enemy unit by 3."),
+        unit("mon_wight", "Grave Hag", Faction.MONSTERS, 3, 6, tags = setOf(Tag.NECROPHAGE),
+            abilities = listOf(Ability(Trigger.START_OF_TURN, Effect.Boost(1))),
+            text = "At the start of your turn, boost self by 1."),
     )
 
     val NILFGAARD = listOf(
@@ -164,6 +194,13 @@ object CardDatabase {
             text = "Deploy: Give an allied unit a Shield."),
         special("nil_seize", "Coup de Grace", Faction.NILFGAARD, 7, tags = setOf(Tag.TACTIC),
             effect = Effect.Destroy, text = "Destroy a damaged enemy unit."),
+        Card(
+            "nil_traitor", "Nilfgaardian Knight", Faction.NILFGAARD, CardType.UNIT,
+            CardColor.BRONZE, 5, 8, 0, setOf(Tag.HUMAN, Tag.SOLDIER),
+            listOf(Ability(Trigger.DEPLOY, Effect.Draw(2))),
+            disloyal = true,
+            text = "Disloyal: plays on the enemy side and gains Spying. Deploy: Draw 2 cards.",
+        ),
     )
 
     val NORTHERN_REALMS = listOf(
@@ -206,6 +243,10 @@ object CardDatabase {
             text = "Order: Boost an allied unit by 3. Charges: 3."),
         special("nor_mobilise", "Mobilisation", Faction.NORTHERN_REALMS, 6, tags = setOf(Tag.WARFARE),
             effect = Effect.Summon("nor_infantry"), text = "Summon a Temerian Infantry."),
+        unit("nor_standard", "Kaedweni Standard", Faction.NORTHERN_REALMS, 3, 7,
+            tags = setOf(Tag.HUMAN, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.ON_ALLY_PLAYED, Effect.Boost(1))),
+            text = "Whenever you play a card, boost self by 1."),
     )
 
     val SCOIATAEL = listOf(
@@ -279,6 +320,14 @@ object CardDatabase {
         special("ske_storm", "Skellige Storm", Faction.SKELLIGE, 7, tags = setOf(Tag.SPELL, Tag.HAZARD),
             effect = Effect.Weather(RowEffectKind.STORM),
             text = "Apply Storm to an enemy row: damages every unit on it by 1 each turn."),
+        unit("ske_tyrggvi", "Tyrggvi Tuirseach", Faction.SKELLIGE, 7, 9, color = CardColor.GOLD,
+            tags = setOf(Tag.HUMAN, Tag.PIRATE, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.RUPTURE))),
+            text = "Deploy: Give an enemy unit Rupture."),
+        unit("ske_restless", "Restless Mariner", Faction.SKELLIGE, 6, 6,
+            tags = setOf(Tag.HUMAN, Tag.PIRATE),
+            innate = setOf(Status.DOOMED),
+            text = "Doomed: banished instead of going to the graveyard."),
     )
 
     val SYNDICATE = listOf(

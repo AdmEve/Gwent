@@ -65,9 +65,10 @@ enum class CardType {
 
     /** One per deck. Deployed only when going first; a non-interactable Order. */
     STRATAGEM,
-
-    /** Multi-stage card that advances through its chapters on a stated condition. */
-    SCENARIO,
+    // NOTE: GWENT also has Scenarios, multi-stage cards that advance through chapters. They are
+    // documented in docs/GWENT-RULES.md but deliberately absent here: a CardType the engine
+    // ignores would read as supported while doing nothing, which is the bug this audit exists
+    // to catch. Add the type back when the staging mechanic is actually built.
 }
 
 /**
@@ -107,9 +108,6 @@ enum class Trigger {
 
     /** Fires when this card's controller plays another card. */
     ON_ALLY_PLAYED,
-
-    /** Passive: continuously true while on the board. */
-    PASSIVE,
 }
 
 /**
