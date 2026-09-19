@@ -89,7 +89,7 @@ fun BoardScreen(
 
             // ---- hand -------------------------------------------------------
             LazyRow(
-                modifier = Modifier.fillMaxWidth().height(HandCardHeight + 8.dp).testTag("hand"),
+                modifier = Modifier.fillMaxWidth().height(HandCardHeight + 4.dp).testTag("hand"),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -134,7 +134,7 @@ private fun BoardRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(CardHeight + 10.dp)
+            .height(CardHeight + 6.dp)
             .clip(RoundedCornerShape(3.dp))
             .background(if (canDrop) RowSlotLit else RowSlot)
             .then(if (canDrop) Modifier.border(1.dp, GoldDeep, RoundedCornerShape(3.dp)) else Modifier)
@@ -144,8 +144,12 @@ private fun BoardRow(
     ) {
         RowScoreTab(player.scoreOf(row), row, effect)
         Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 3.dp),
+            // Units sit centred on the row, as they do in the real game.
+            horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             units.forEach { unit ->
@@ -185,7 +189,7 @@ private fun RowScoreTab(score: Int, row: Row, effect: RowEffectKind?) {
 @Composable
 private fun CentreLine(state: GameState) {
     Box(
-        modifier = Modifier.fillMaxWidth().height(20.dp),
+        modifier = Modifier.fillMaxWidth().height(16.dp),
         contentAlignment = Alignment.Center,
     ) {
         Box(

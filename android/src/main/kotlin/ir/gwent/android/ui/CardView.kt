@@ -21,10 +21,10 @@ import androidx.compose.ui.unit.sp
 import ir.gwent.core.model.*
 
 /** Board cards sit at roughly 2:3, as in the real game. */
-val CardWidth = 52.dp
-val CardHeight = 76.dp
-val HandCardWidth = 62.dp
-val HandCardHeight = 92.dp
+val CardWidth = 44.dp
+val CardHeight = 62.dp
+val HandCardWidth = 52.dp
+val HandCardHeight = 76.dp
 
 /**
  * The power gem: a diamond in the top-left corner carrying the unit's current power.
