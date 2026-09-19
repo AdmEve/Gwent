@@ -132,7 +132,7 @@ fun DeckBuilderScreen(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            FooterButton("BACK", true, onBack)
+            FooterButton("BACK", true, onClick = onBack)
             Spacer(Modifier.width(6.dp))
             FooterButton("AUTOFILL", builder.size < MIN_DECK_SIZE) {
                 builder.autoComplete(CardDatabase.ALL); message = null; revision++
