@@ -1,196 +1,125 @@
 package ir.gwent.core.ai
 
+import ir.gwent.core.engine.Action
 import ir.gwent.core.engine.GameEngine
-import ir.gwent.core.engine.PlayTarget
-import ir.gwent.core.model.Ability
-import ir.gwent.core.model.Card
-import ir.gwent.core.model.GameState
-import ir.gwent.core.model.LeaderAbility
-import ir.gwent.core.model.Row
-import ir.gwent.core.model.Side
-import ir.gwent.core.model.other
-
-sealed class Move {
-    data class PlayCard(val cardId: String, val target: PlayTarget? = null) : Move()
-    data object UseLeader : Move()
-    data object Pass : Move()
-}
+import ir.gwent.core.model.*
 
 /**
- * A heuristic (not optimal) opponent: reads the board rather than the deck it hasn't seen,
- * weighs Scorch and Weather by whether they net positive value, spies for card advantage when
- * behind on cards, and concedes a round it cannot win rather than burning its hand.
- *
- * Every move is checked against the engine before being returned, so a caller that drives the
- * AI in a loop can rely on each move actually advancing the game.
+ * A deliberately modest opponent: it plays for points, uses removal on the biggest threat, and
+ * knows the one strategic rule that matters most in GWENT — do not keep spending cards into a
+ * round you have already lost.
  */
-object SimpleAi {
+class SimpleAi(private val side: Side) {
 
-    fun chooseMove(state: GameState, side: Side): Move {
-        if (state.matchOver || state.turn != side) return Move.Pass
+    /** Decide and perform the next action. Returns false when the AI has finished its turn. */
+    fun takeTurn(engine: GameEngine): Boolean {
+        val state = engine.state
+        if (state.matchOver || state.turn != side) return false
         val me = state.player(side)
-        if (me.passed || me.hand.isEmpty()) return Move.Pass
+        val them = state.opponent(side)
+        if (me.passed) return false
 
-        val opp = state.player(side.other())
-        val myTotal = GameEngine.totalPower(state, side)
-        val oppTotal = GameEngine.totalPower(state, side.other())
-        val lastStand = me.lives <= 1 // losing this round ends the match
-
-        if (opp.passed) {
-            // Already ahead with the opponent done: bank the round.
-            if (myTotal > oppTotal) return Move.Pass
-            // Can't catch up and it isn't fatal? Concede and keep the cards.
-            val deficit = oppTotal - myTotal
-            if (!lastStand && deficit > reachableGain(state, side) && state.round < 3) return Move.Pass
-            return validated(state, side, bestMove(state, side))
+        // Nothing left to play: passing is automatic, but ask for it explicitly so the engine
+        // records it the same way as a chosen pass.
+        if (me.hand.isEmpty()) {
+            engine.perform(side, Action.Pass)
+            return false
         }
 
-        if (shouldUseLeader(state, side)) return Move.UseLeader
+        val myScore = me.score()
+        val theirScore = them.score()
 
-        val comfortablyAhead = myTotal > oppTotal + 8
-        if (comfortablyAhead && !lastStand && me.hand.size <= opp.hand.size && state.round < 3) {
-            return Move.Pass
+        // If the opponent has passed and we are ahead, bank the round rather than overcommitting.
+        if (them.passed && myScore > theirScore) {
+            engine.perform(side, Action.Pass)
+            return false
         }
-        return validated(state, side, bestMove(state, side))
+
+        // A round we cannot reach is not worth cards; concede it and keep the hand for the next.
+        if (them.passed && !canCatchUp(me, theirScore - myScore)) {
+            engine.perform(side, Action.Pass)
+            return false
+        }
+
+        val played = playBestCard(engine, me, them)
+        if (!played) {
+            engine.perform(side, Action.Pass)
+            return false
+        }
+        useOrders(engine, me, them)
+        engine.perform(side, Action.EndTurn)
+        return true
     }
 
-    /** Spends the leader only when it actually does something worthwhile right now. */
-    private fun shouldUseLeader(state: GameState, side: Side): Boolean {
-        if (!GameEngine.canUseLeader(state, side)) return false
-        val me = state.player(side)
-        val enemy = state.player(side.other())
-        return when (me.leader.ability) {
-            LeaderAbility.CLEAR_ALL_WEATHER -> state.weatheredRows.any { row ->
-                GameEngine.rowPower(state, side, row) < GameEngine.rowPower(state, side.other(), row)
-            }
-            LeaderAbility.SCORCH_ENEMY_STRONGEST ->
-                Row.entries.flatMap { enemy.board.getValue(it) }.any { !it.isHero && it.basePower >= 5 }
-            LeaderAbility.DRAW_CARD -> me.deck.isNotEmpty() && me.hand.size <= enemy.hand.size
-            LeaderAbility.HORN_STRONGEST_ROW ->
-                Row.entries.maxOf { GameEngine.rowPower(state, side, it) } >= 8
-            LeaderAbility.WEATHER_ENEMY_STRONGEST_ROW ->
-                Row.entries.maxOf { GameEngine.rowPower(state, side.other(), it) } >= 10
-        }
-    }
+    /** Could the cards in hand still close a deficit of [deficit] points? */
+    private fun canCatchUp(me: PlayerState, deficit: Int): Boolean =
+        me.hand.sumOf { maxOf(it.basePower, 0) } >= deficit
 
-    /** Rough ceiling on how much power this hand could still add, used to decide whether to concede. */
-    private fun reachableGain(state: GameState, side: Side): Int {
-        val me = state.player(side)
-        return me.hand.filter { it.ability != Ability.WEATHER && it.ability != Ability.CLEAR_WEATHER }
-            .sumOf { it.basePower }
-    }
-
-    private fun validated(state: GameState, side: Side, move: Move.PlayCard?): Move {
-        if (move != null && GameEngine.rejectionReason(state, side, move.cardId, move.target) == null) {
-            return move
-        }
-        // Fall back to any legal card before giving up the round.
-        val me = state.player(side)
-        me.hand.forEach { card ->
-            val target = defaultTargetFor(state, side, card)
-            if (GameEngine.rejectionReason(state, side, card.id, target) == null) {
-                return Move.PlayCard(card.id, target)
+    private fun playBestCard(engine: GameEngine, me: PlayerState, them: PlayerState): Boolean {
+        val candidates = me.hand.indices.sortedByDescending { valueOf(me.hand[it], them) }
+        for (index in candidates) {
+            val card = me.hand[index]
+            val row = preferredRow(card)
+            val target = pickTarget(card, me, them)
+            for (r in listOf(row, row.other())) {
+                if (engine.perform(side, Action.PlayCard(index, r, target = target)) == null) return true
             }
         }
-        return Move.Pass
+        return false
     }
 
-    private fun defaultTargetFor(state: GameState, side: Side, card: Card): PlayTarget? {
-        val me = state.player(side)
-        return when (card.ability) {
-            Ability.DECOY -> weakestOwnUnit(state, side)?.let { PlayTarget.DecoyTarget(it.id) }
-            Ability.MEDIC -> PlayTarget.MedicRevive(me.discard.maxByOrNull { it.basePower }?.id)
-            else -> null
-        }
-    }
-
-    private fun weakestOwnUnit(state: GameState, side: Side): Card? {
-        val me = state.player(side)
-        return Row.entries.flatMap { me.board.getValue(it) }
-            .filter { !it.isHero }
-            .minByOrNull { it.basePower }
-    }
-
-    private fun bestMove(state: GameState, side: Side): Move.PlayCard? {
-        val me = state.player(side)
-        val opp = state.player(side.other())
-        if (me.hand.isEmpty()) return null
-
-        // Scorch, but only when the biggest unit on the board belongs to the opponent.
-        me.hand.firstOrNull { it.ability == Ability.SCORCH }?.let { scorch ->
-            if (scorchTargetsEnemy(state, side)) return Move.PlayCard(scorch.id)
-        }
-
-        // Horn, on whichever of our rows it multiplies the most.
-        me.hand.filter { it.ability == Ability.HORN && me.board.getValue(it.row).isNotEmpty() }
-            .maxByOrNull { candidate -> me.board.getValue(candidate.row).sumOf { it.basePower } }
-            ?.let { return Move.PlayCard(it.id) }
-
-        // Weather, when it costs the opponent materially more than us.
-        me.hand.filter { it.ability == Ability.WEATHER && it.row !in state.weatheredRows }
-            .filter { GameEngine.rowPower(state, side.other(), it.row) > GameEngine.rowPower(state, side, it.row) + 4 }
-            .maxByOrNull { GameEngine.rowPower(state, side.other(), it.row) }
-            ?.let { return Move.PlayCard(it.id) }
-
-        // Clear weather, when our own board is the one suffering.
-        if (state.weatheredRows.isNotEmpty()) {
-            val myLoss = state.weatheredRows.sumOf { weatherLoss(state, side, it) }
-            val oppLoss = state.weatheredRows.sumOf { weatherLoss(state, side.other(), it) }
-            if (myLoss > oppLoss + 4) {
-                me.hand.firstOrNull { it.ability == Ability.CLEAR_WEATHER }?.let { return Move.PlayCard(it.id) }
+    /** Rough worth: raw points, plus credit for removal when there is something to remove. */
+    private fun valueOf(card: Card, them: PlayerState): Int {
+        var score = card.basePower
+        card.abilities.forEach { ability ->
+            score += when (val e = ability.effect) {
+                is Effect.Damage -> if (them.units().isNotEmpty()) e.amount else 0
+                Effect.Destroy -> them.units().maxOfOrNull { it.power } ?: 0
+                is Effect.Boost -> e.amount
+                is Effect.Draw -> e.count * 2
+                else -> 0
             }
         }
+        return score
+    }
 
-        // Spy, while we are behind on cards and can afford the tempo.
-        if (me.hand.size <= opp.hand.size && me.deck.isNotEmpty()) {
-            me.hand.firstOrNull { it.ability == Ability.SPY }?.let { return Move.PlayCard(it.id) }
+    /** Respect printed row clauses; otherwise melee, so ranged stays free for archers. */
+    private fun preferredRow(card: Card): Row =
+        card.abilities.firstNotNullOfOrNull { it.row } ?: Row.MELEE
+
+    /** Harmful effects go at their strongest unit; helpful ones at our weakest damaged unit. */
+    private fun pickTarget(card: Card, me: PlayerState, them: PlayerState): Int? {
+        val harmful = card.abilities.any {
+            it.effect is Effect.Damage || it.effect is Effect.Destroy ||
+                (it.effect as? Effect.Apply)?.status in setOf(Status.POISON, Status.BLEEDING)
         }
-
-        // Medic, bringing back the strongest thing in the graveyard.
-        me.hand.firstOrNull { it.ability == Ability.MEDIC }?.let { medic ->
-            val revive = me.discard.maxByOrNull { it.basePower }
-            if (revive != null) return Move.PlayCard(medic.id, PlayTarget.MedicRevive(revive.id))
-        }
-
-        // Otherwise the biggest body that isn't a utility card we might want later.
-        val held = setOf(
-            Ability.HORN, Ability.WEATHER, Ability.CLEAR_WEATHER,
-            Ability.DECOY, Ability.SPY, Ability.SCORCH,
-        )
-        me.hand.filter { it.ability !in held }.maxByOrNull { it.basePower }
-            ?.let { return Move.PlayCard(it.id, defaultTargetFor(state, side, it)) }
-
-        return me.hand.maxByOrNull { it.basePower }?.let {
-            Move.PlayCard(it.id, defaultTargetFor(state, side, it))
+        return if (harmful) {
+            them.units().filterNot { it.has(Status.IMMUNITY) }.maxByOrNull { it.power }?.uid
+        } else {
+            me.units().filter { it.isDamaged }.minByOrNull { it.power }?.uid
+                ?: me.units().maxByOrNull { it.power }?.uid
         }
     }
 
-    /** Power this side would regain in [row] if the weather lifted. */
-    private fun weatherLoss(state: GameState, side: Side, row: Row): Int {
-        val cards = state.player(side).board.getValue(row)
-        val horned = cards.any { it.ability == Ability.HORN }
-        return cards.filter { !it.isHero }.sumOf { c ->
-            val full = if (horned) c.basePower * 2 else c.basePower
-            val now = if (horned) 2 else 1
-            (full - now).coerceAtLeast(0)
+    private fun useOrders(engine: GameEngine, me: PlayerState, them: PlayerState) {
+        me.units().filter { it.orderReady && it.charges > 0 }.forEach { unit ->
+            val ability = unit.card.abilities.firstOrNull { it.trigger == Trigger.ORDER } ?: return@forEach
+            val harmful = ability.effect is Effect.Damage || ability.effect is Effect.Destroy
+            val target = if (harmful) {
+                them.units().filterNot { it.has(Status.IMMUNITY) }.maxByOrNull { it.power }?.uid
+            } else {
+                me.units().filter { it.isDamaged }.minByOrNull { it.power }?.uid
+            }
+            if (target != null) engine.perform(side, Action.UseOrder(unit.uid, target))
         }
     }
 
-    /** Only worth playing Scorch if the current board-wide highest-power unit is the enemy's. */
-    private fun scorchTargetsEnemy(state: GameState, side: Side): Boolean {
-        val all = (Row.entries.flatMap { state.playerA.board.getValue(it) } +
-            Row.entries.flatMap { state.playerB.board.getValue(it) }).filter { !it.isHero }
-        if (all.isEmpty()) return false
-
-        fun ownerOf(card: Card): Side =
-            if (state.playerA.board.getValue(card.row).contains(card)) Side.A else Side.B
-
-        fun effective(card: Card): Int =
-            GameEngine.effectivePower(state, card, card.row, state.player(ownerOf(card)).board.getValue(card.row))
-
-        val highest = all.maxOf { effective(it) }
-        val enemyHolds = all.any { ownerOf(it) != side && effective(it) == highest }
-        val weHold = all.any { ownerOf(it) == side && effective(it) == highest }
-        return enemyHolds && !weHold
+    /** Throw back the weakest cards while mulligans remain. */
+    fun mulligan(engine: GameEngine) {
+        val me = engine.state.player(side)
+        while (me.mulligansLeft > 0) {
+            val worst = me.hand.indices.minByOrNull { me.hand[it].basePower } ?: break
+            if (engine.mulligan(side, worst) != null) break
+        }
     }
 }

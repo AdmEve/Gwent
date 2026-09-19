@@ -1,185 +1,270 @@
 package ir.gwent.core.model
 
 /**
- * Card pools, one per faction/deck. Shahnameh factions are original characters/art/text.
- * Marvel and One Piece characters are used under the studio's confidential licensing
- * clearance for this project; Greek Myth characters are public-domain mythology.
- * Each deck mixes plain row units, a couple of hero units (immune to Horn/Scorch/Decoy/
- * Weather), and one card each of Horn, Scorch, Spy, Medic and Decoy, plus three Weather
- * cards (one per row) and a Clear Weather card.
+ * The card pool.
+ *
+ * Provision costs are the balancing lever: a deck may hold 25+ cards but only 150 + leader
+ * provisions' worth, so a gold bomb is paid for with weaker bronzes elsewhere. These numbers are
+ * the kind the live game re-balances monthly, so they live here as data.
  */
 object CardDatabase {
 
-    val pahlavan: List<Card> = listOf(
-        Card("pah-sohrab", "Sohrab", Faction.PAHLAVAN, Row.MELEE, 6),
-        Card("pah-bijan", "Bijan", Faction.PAHLAVAN, Row.MELEE, 5),
-        Card("pah-giv", "Giv", Faction.PAHLAVAN, Row.MELEE, 4),
-        Card("pah-rostam", "Rostam", Faction.PAHLAVAN, Row.MELEE, 10, isHero = true),
+    private fun unit(
+        id: String,
+        name: String,
+        faction: Faction,
+        power: Int,
+        provisions: Int,
+        color: CardColor = CardColor.BRONZE,
+        armor: Int = 0,
+        tags: Set<Tag> = emptySet(),
+        abilities: List<Ability> = emptyList(),
+        text: String = "",
+    ) = Card(id, name, faction, CardType.UNIT, color, provisions, power, armor, tags, abilities, text = text)
 
-        Card("pah-bahram", "Bahram Gur", Faction.PAHLAVAN, Row.RANGED, 4),
-        Card("pah-faramarz", "Faramarz", Faction.PAHLAVAN, Row.RANGED, 6),
-        Card("pah-arash", "Arash the Archer", Faction.PAHLAVAN, Row.RANGED, 8),
-        Card("pah-esfandiar", "Esfandiar", Faction.PAHLAVAN, Row.RANGED, 9, isHero = true),
-
-        Card("pah-tahmineh", "Tahmineh", Faction.PAHLAVAN, Row.SIEGE, 4),
-        Card("pah-piran", "Piran", Faction.PAHLAVAN, Row.SIEGE, 5),
-        Card("pah-ashkbus", "Ashkbus", Faction.PAHLAVAN, Row.SIEGE, 3),
-
-        Card("pah-kaveh", "Kaveh the Blacksmith", Faction.PAHLAVAN, Row.SIEGE, 3, ability = Ability.HORN),
-        Card("pah-simurgh", "Simurgh", Faction.PAHLAVAN, Row.RANGED, 4, ability = Ability.SCORCH),
-        Card("pah-gordafarid", "Gordafarid", Faction.PAHLAVAN, Row.RANGED, 5, ability = Ability.SPY),
-        Card("pah-zal", "Zal", Faction.PAHLAVAN, Row.SIEGE, 6, ability = Ability.MEDIC),
-        Card("pah-manijeh", "Manijeh", Faction.PAHLAVAN, Row.SIEGE, 2, ability = Ability.DECOY),
-
-        Card("pah-guard-1", "Immortal Guard", Faction.PAHLAVAN, Row.MELEE, 3, bondGroup = "immortals"),
-        Card("pah-guard-2", "Immortal Guard", Faction.PAHLAVAN, Row.MELEE, 3, bondGroup = "immortals"),
-        Card("pah-guard-3", "Immortal Guard", Faction.PAHLAVAN, Row.MELEE, 3, bondGroup = "immortals"),
-        Card("pah-archer-1", "Royal Archer", Faction.PAHLAVAN, Row.RANGED, 2, musterGroup = "royal-archers"),
-        Card("pah-archer-2", "Royal Archer", Faction.PAHLAVAN, Row.RANGED, 2, musterGroup = "royal-archers"),
-
-        Card("pah-blizzard", "Blizzard of Mazandaran", Faction.PAHLAVAN, Row.MELEE, ability = Ability.WEATHER),
-        Card("pah-fog", "Fog of Mazandaran", Faction.PAHLAVAN, Row.RANGED, ability = Ability.WEATHER),
-        Card("pah-flood", "Flood of the Kashaf River", Faction.PAHLAVAN, Row.SIEGE, ability = Ability.WEATHER),
-        Card("pah-sorush", "Sorush's Blessing", Faction.PAHLAVAN, Row.MELEE, ability = Ability.CLEAR_WEATHER),
+    private fun special(
+        id: String,
+        name: String,
+        faction: Faction,
+        provisions: Int,
+        color: CardColor = CardColor.BRONZE,
+        tags: Set<Tag> = emptySet(),
+        effect: Effect,
+        text: String = "",
+    ) = Card(
+        id, name, faction, CardType.SPECIAL, color, provisions, 0, 0, tags,
+        listOf(Ability(Trigger.DEPLOY, effect)), text = text,
     )
 
-    val div: List<Card> = listOf(
-        Card("div-akvan", "Akvan Div", Faction.DIV, Row.MELEE, 6),
-        Card("div-puladvand", "Puladvand", Faction.DIV, Row.MELEE, 5),
-        Card("div-sanjeh", "Sanjeh Div", Faction.DIV, Row.MELEE, 4),
-        Card("div-sepid", "Div-e Sepid", Faction.DIV, Row.MELEE, 10, isHero = true),
+    // ------------------------------------------------------------- neutral
 
-        Card("div-arzhang", "Arzhang Div", Faction.DIV, Row.RANGED, 5),
-        Card("div-bid", "Bid Div", Faction.DIV, Row.RANGED, 4),
-        Card("div-karkadann", "Karkadann", Faction.DIV, Row.RANGED, 4),
-        Card("div-zahhak", "Zahhak", Faction.DIV, Row.RANGED, 9, isHero = true),
-
-        Card("div-nahang", "Nahang Div", Faction.DIV, Row.SIEGE, 6),
-        Card("div-shabahang", "Shabahang", Faction.DIV, Row.SIEGE, 2),
-        Card("div-ahriman-spawn", "Ahriman's Spawn", Faction.DIV, Row.SIEGE, 3),
-
-        Card("div-ifrit", "Ifrit", Faction.DIV, Row.SIEGE, 3, ability = Ability.HORN),
-        Card("div-ghoul", "Ghoul", Faction.DIV, Row.RANGED, 4, ability = Ability.SCORCH),
-        Card("div-sork", "Sork Div", Faction.DIV, Row.RANGED, 5, ability = Ability.SPY),
-        Card("div-ahriman", "Ahriman", Faction.DIV, Row.SIEGE, 5, ability = Ability.MEDIC),
-        Card("div-nasnas", "Nasnas", Faction.DIV, Row.MELEE, 2, ability = Ability.DECOY),
-
-        Card("div-swarm-1", "Shadow Swarm", Faction.DIV, Row.MELEE, 3, bondGroup = "swarm"),
-        Card("div-swarm-2", "Shadow Swarm", Faction.DIV, Row.MELEE, 3, bondGroup = "swarm"),
-        Card("div-swarm-3", "Shadow Swarm", Faction.DIV, Row.MELEE, 3, bondGroup = "swarm"),
-        Card("div-imp-1", "Pit Imp", Faction.DIV, Row.SIEGE, 2, musterGroup = "pit-imps"),
-        Card("div-imp-2", "Pit Imp", Faction.DIV, Row.SIEGE, 2, musterGroup = "pit-imps"),
-
-        Card("div-darkness", "Darkness of Mazandaran", Faction.DIV, Row.MELEE, ability = Ability.WEATHER),
-        Card("div-plague-wind", "Plague Wind of Ahriman", Faction.DIV, Row.RANGED, ability = Ability.WEATHER),
-        Card("div-black-flood", "Black Flood", Faction.DIV, Row.SIEGE, ability = Ability.WEATHER),
-        Card("div-dawn", "Dawn of Ohrmazd", Faction.DIV, Row.MELEE, ability = Ability.CLEAR_WEATHER),
+    val NEUTRALS = listOf(
+        unit("neu_militia", "Town Militia", Faction.NEUTRAL, 4, 4, tags = setOf(Tag.HUMAN, Tag.SOLDIER)),
+        unit("neu_mercenary", "Hired Blade", Faction.NEUTRAL, 6, 6, tags = setOf(Tag.HUMAN, Tag.SOLDIER)),
+        unit(
+            "neu_medic", "Field Medic", Faction.NEUTRAL, 4, 6, tags = setOf(Tag.HUMAN),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Heal(3))),
+            text = "Deploy: Heal an allied unit by 3.",
+        ),
+        unit(
+            "neu_archer", "Crossbowman", Faction.NEUTRAL, 4, 5, tags = setOf(Tag.HUMAN, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Damage(2), row = Row.RANGED)),
+            text = "Deploy (Ranged): Damage an enemy unit by 2.",
+        ),
+        unit(
+            "neu_shieldbearer", "Shieldbearer", Faction.NEUTRAL, 5, 6, armor = 2,
+            tags = setOf(Tag.HUMAN, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.SHIELD))),
+            text = "Deploy: Gain a Shield.",
+        ),
+        unit(
+            "neu_champion", "Champion of Champions", Faction.NEUTRAL, 10, 11, color = CardColor.GOLD,
+            tags = setOf(Tag.HUMAN, Tag.KNIGHT),
+            abilities = listOf(Ability(Trigger.ORDER, Effect.Damage(4), charges = 2, cooldown = 1)),
+            text = "Order: Damage an enemy unit by 4. Charges: 2.",
+        ),
+        special(
+            "neu_scorch", "Scorch", Faction.NEUTRAL, 8, color = CardColor.GOLD, tags = setOf(Tag.SPELL),
+            effect = Effect.Destroy, text = "Destroy the highest-power enemy unit.",
+        ),
+        special(
+            "neu_alzurs_thunder", "Alzur's Thunder", Faction.NEUTRAL, 5, tags = setOf(Tag.SPELL),
+            effect = Effect.Damage(5), text = "Damage an enemy unit by 5.",
+        ),
+        special(
+            "neu_swallow", "Swallow", Faction.NEUTRAL, 5, tags = setOf(Tag.ALCHEMY),
+            effect = Effect.Apply(Status.VITALITY, 3), text = "Give an allied unit Vitality (3).",
+        ),
     )
 
-    val marvel: List<Card> = listOf(
-        Card("mar-cap-america", "Captain America", Faction.MARVEL, Row.MELEE, 6),
-        Card("mar-black-panther", "Black Panther", Faction.MARVEL, Row.MELEE, 5),
-        Card("mar-luke-cage", "Luke Cage", Faction.MARVEL, Row.MELEE, 4),
-        Card("mar-wolverine", "Wolverine", Faction.MARVEL, Row.MELEE, 10, isHero = true),
+    // ------------------------------------------------------------- factions
 
-        Card("mar-hawkeye", "Hawkeye", Faction.MARVEL, Row.RANGED, 4),
-        Card("mar-black-widow", "Black Widow", Faction.MARVEL, Row.RANGED, 5),
-        Card("mar-star-lord", "Star-Lord", Faction.MARVEL, Row.RANGED, 6),
-        Card("mar-thor", "Thor", Faction.MARVEL, Row.RANGED, 9, isHero = true),
-
-        Card("mar-war-machine", "War Machine", Faction.MARVEL, Row.SIEGE, 5),
-        Card("mar-rocket", "Rocket Raccoon", Faction.MARVEL, Row.SIEGE, 3),
-        Card("mar-vision", "Vision", Faction.MARVEL, Row.SIEGE, 4),
-
-        Card("mar-iron-man", "Iron Man", Faction.MARVEL, Row.SIEGE, 3, ability = Ability.HORN),
-        Card("mar-doctor-strange", "Doctor Strange", Faction.MARVEL, Row.RANGED, 4, ability = Ability.SCORCH),
-        Card("mar-loki", "Loki", Faction.MARVEL, Row.RANGED, 5, ability = Ability.SPY),
-        Card("mar-scarlet-witch", "Scarlet Witch", Faction.MARVEL, Row.SIEGE, 5, ability = Ability.MEDIC),
-        Card("mar-mysterio", "Mysterio", Faction.MARVEL, Row.MELEE, 2, ability = Ability.DECOY),
-
-        Card("mar-shield-1", "S.H.I.E.L.D. Agent", Faction.MARVEL, Row.RANGED, 3, bondGroup = "shield"),
-        Card("mar-shield-2", "S.H.I.E.L.D. Agent", Faction.MARVEL, Row.RANGED, 3, bondGroup = "shield"),
-        Card("mar-shield-3", "S.H.I.E.L.D. Agent", Faction.MARVEL, Row.RANGED, 3, bondGroup = "shield"),
-        Card("mar-ultron-1", "Ultron Sentry", Faction.MARVEL, Row.MELEE, 2, musterGroup = "sentries"),
-        Card("mar-ultron-2", "Ultron Sentry", Faction.MARVEL, Row.MELEE, 2, musterGroup = "sentries"),
-
-        Card("mar-storm", "Storm", Faction.MARVEL, Row.MELEE, ability = Ability.WEATHER),
-        Card("mar-sandman", "Sandman", Faction.MARVEL, Row.RANGED, ability = Ability.WEATHER),
-        Card("mar-hydro-man", "Hydro-Man", Faction.MARVEL, Row.SIEGE, ability = Ability.WEATHER),
-        Card("mar-human-torch", "Human Torch", Faction.MARVEL, Row.MELEE, ability = Ability.CLEAR_WEATHER),
+    val MONSTERS = listOf(
+        unit("mon_ghoul", "Ghoul", Faction.MONSTERS, 4, 4, tags = setOf(Tag.NECROPHAGE)),
+        unit("mon_harpy", "Harpy", Faction.MONSTERS, 3, 4, tags = setOf(Tag.BEAST)),
+        unit(
+            "mon_arachas", "Arachas", Faction.MONSTERS, 5, 6, armor = 1, tags = setOf(Tag.INSECTOID),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Damage(2))),
+            text = "Deploy: Damage an enemy unit by 2.",
+        ),
+        unit(
+            "mon_werewolf", "Werewolf", Faction.MONSTERS, 7, 8, tags = setOf(Tag.CURSED, Tag.BEAST),
+            abilities = listOf(Ability(Trigger.END_OF_TURN, Effect.Boost(1))),
+            text = "At the end of your turn, boost self by 1.",
+        ),
+        unit(
+            "mon_vampire", "Katakan", Faction.MONSTERS, 8, 10, color = CardColor.GOLD,
+            tags = setOf(Tag.VAMPIRE),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.BLEEDING, 3))),
+            text = "Deploy: Give an enemy unit Bleeding (3).",
+        ),
     )
 
-    val onePiece: List<Card> = listOf(
-        Card("op-zoro", "Roronoa Zoro", Faction.ONE_PIECE, Row.MELEE, 7),
-        Card("op-sanji", "Sanji", Faction.ONE_PIECE, Row.MELEE, 6),
-        Card("op-jinbe", "Jinbe", Faction.ONE_PIECE, Row.MELEE, 5),
-        Card("op-luffy", "Monkey D. Luffy", Faction.ONE_PIECE, Row.MELEE, 10, isHero = true),
-
-        Card("op-usopp", "Usopp", Faction.ONE_PIECE, Row.RANGED, 4),
-        Card("op-killer", "Killer", Faction.ONE_PIECE, Row.RANGED, 5),
-        Card("op-law", "Trafalgar Law", Faction.ONE_PIECE, Row.RANGED, 6),
-        Card("op-shanks", "Shanks", Faction.ONE_PIECE, Row.RANGED, 9, isHero = true),
-
-        Card("op-franky", "Franky", Faction.ONE_PIECE, Row.SIEGE, 5),
-        Card("op-brook", "Brook", Faction.ONE_PIECE, Row.SIEGE, 3),
-        Card("op-kid", "Eustass Kid", Faction.ONE_PIECE, Row.SIEGE, 4),
-
-        Card("op-whitebeard", "Whitebeard", Faction.ONE_PIECE, Row.SIEGE, 4, ability = Ability.HORN),
-        Card("op-akainu", "Akainu", Faction.ONE_PIECE, Row.RANGED, 5, ability = Ability.SCORCH),
-        Card("op-robin", "Nico Robin", Faction.ONE_PIECE, Row.RANGED, 5, ability = Ability.SPY),
-        Card("op-chopper", "Tony Tony Chopper", Faction.ONE_PIECE, Row.MELEE, 3, ability = Ability.MEDIC),
-        Card("op-buggy", "Buggy", Faction.ONE_PIECE, Row.MELEE, 2, ability = Ability.DECOY),
-
-        Card("op-straw-1", "Straw Hat Crewman", Faction.ONE_PIECE, Row.MELEE, 3, bondGroup = "straw-hats"),
-        Card("op-straw-2", "Straw Hat Crewman", Faction.ONE_PIECE, Row.MELEE, 3, bondGroup = "straw-hats"),
-        Card("op-straw-3", "Straw Hat Crewman", Faction.ONE_PIECE, Row.MELEE, 3, bondGroup = "straw-hats"),
-        Card("op-marine-1", "Marine", Faction.ONE_PIECE, Row.RANGED, 2, musterGroup = "marines"),
-        Card("op-marine-2", "Marine", Faction.ONE_PIECE, Row.RANGED, 2, musterGroup = "marines"),
-
-        Card("op-nami", "Nami", Faction.ONE_PIECE, Row.MELEE, ability = Ability.WEATHER),
-        Card("op-eneru", "Eneru", Faction.ONE_PIECE, Row.RANGED, ability = Ability.WEATHER),
-        Card("op-crocodile", "Crocodile", Faction.ONE_PIECE, Row.SIEGE, ability = Ability.WEATHER),
-        Card("op-nika", "Sun God Nika", Faction.ONE_PIECE, Row.MELEE, ability = Ability.CLEAR_WEATHER),
+    val NILFGAARD = listOf(
+        unit("nil_soldier", "Nilfgaardian Soldier", Faction.NILFGAARD, 4, 4, tags = setOf(Tag.HUMAN, Tag.SOLDIER)),
+        unit("nil_knight", "Impera Brigade", Faction.NILFGAARD, 6, 7, armor = 1, tags = setOf(Tag.HUMAN, Tag.SOLDIER)),
+        unit(
+            "nil_spy", "Imperial Informant", Faction.NILFGAARD, 5, 6, tags = setOf(Tag.HUMAN),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Draw(1))),
+            text = "Deploy: Draw a card.",
+        ),
+        unit(
+            "nil_assassin", "Cantarella", Faction.NILFGAARD, 6, 9, color = CardColor.GOLD,
+            tags = setOf(Tag.HUMAN),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.POISON))),
+            text = "Deploy: Poison an enemy unit.",
+        ),
+        special(
+            "nil_bribery", "Imperial Diplomacy", Faction.NILFGAARD, 6, tags = setOf(Tag.TACTIC),
+            effect = Effect.Draw(2), text = "Draw 2 cards.",
+        ),
     )
 
-    val greekMyth: List<Card> = listOf(
-        Card("grk-ajax", "Ajax", Faction.GREEK_MYTH, Row.MELEE, 6),
-        Card("grk-hector", "Hector", Faction.GREEK_MYTH, Row.MELEE, 6),
-        Card("grk-menelaus", "Menelaus", Faction.GREEK_MYTH, Row.MELEE, 5),
-        Card("grk-achilles", "Achilles", Faction.GREEK_MYTH, Row.MELEE, 10, isHero = true),
-
-        Card("grk-paris", "Paris", Faction.GREEK_MYTH, Row.RANGED, 4),
-        Card("grk-atalanta", "Atalanta", Faction.GREEK_MYTH, Row.RANGED, 5),
-        Card("grk-diomedes", "Diomedes", Faction.GREEK_MYTH, Row.RANGED, 6),
-        Card("grk-apollo", "Apollo", Faction.GREEK_MYTH, Row.RANGED, 9, isHero = true),
-
-        Card("grk-perseus", "Perseus", Faction.GREEK_MYTH, Row.SIEGE, 5),
-        Card("grk-bellerophon", "Bellerophon", Faction.GREEK_MYTH, Row.SIEGE, 4),
-        Card("grk-jason", "Jason", Faction.GREEK_MYTH, Row.SIEGE, 3),
-
-        Card("grk-zeus", "Zeus", Faction.GREEK_MYTH, Row.SIEGE, 4, ability = Ability.HORN),
-        Card("grk-medusa", "Medusa", Faction.GREEK_MYTH, Row.RANGED, 4, ability = Ability.SCORCH),
-        Card("grk-hermes", "Hermes", Faction.GREEK_MYTH, Row.RANGED, 5, ability = Ability.SPY),
-        Card("grk-asclepius", "Asclepius", Faction.GREEK_MYTH, Row.SIEGE, 5, ability = Ability.MEDIC),
-        Card("grk-odysseus", "Odysseus", Faction.GREEK_MYTH, Row.MELEE, 3, ability = Ability.DECOY),
-
-        Card("grk-myrmidon-1", "Myrmidon", Faction.GREEK_MYTH, Row.MELEE, 3, bondGroup = "myrmidons"),
-        Card("grk-myrmidon-2", "Myrmidon", Faction.GREEK_MYTH, Row.MELEE, 3, bondGroup = "myrmidons"),
-        Card("grk-myrmidon-3", "Myrmidon", Faction.GREEK_MYTH, Row.MELEE, 3, bondGroup = "myrmidons"),
-        Card("grk-spartan-1", "Spartan Hoplite", Faction.GREEK_MYTH, Row.SIEGE, 2, musterGroup = "spartans"),
-        Card("grk-spartan-2", "Spartan Hoplite", Faction.GREEK_MYTH, Row.SIEGE, 2, musterGroup = "spartans"),
-
-        Card("grk-boreas", "Boreas", Faction.GREEK_MYTH, Row.MELEE, ability = Ability.WEATHER),
-        Card("grk-demeter", "Demeter", Faction.GREEK_MYTH, Row.RANGED, ability = Ability.WEATHER),
-        Card("grk-poseidon", "Poseidon", Faction.GREEK_MYTH, Row.SIEGE, ability = Ability.WEATHER),
-        Card("grk-helios", "Helios", Faction.GREEK_MYTH, Row.MELEE, ability = Ability.CLEAR_WEATHER),
+    val NORTHERN_REALMS = listOf(
+        unit("nor_infantry", "Temerian Infantry", Faction.NORTHERN_REALMS, 4, 4, armor = 1, tags = setOf(Tag.HUMAN, Tag.SOLDIER)),
+        unit("nor_trebuchet", "Trebuchet", Faction.NORTHERN_REALMS, 3, 5, tags = setOf(Tag.MACHINE, Tag.SIEGE_ENGINE)),
+        unit(
+            "nor_knight", "Redanian Knight", Faction.NORTHERN_REALMS, 5, 6, armor = 2,
+            tags = setOf(Tag.HUMAN, Tag.KNIGHT, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.END_OF_TURN, Effect.Boost(1))),
+            text = "At the end of your turn, boost self by 1.",
+        ),
+        unit(
+            "nor_ballista", "Siege Ballista", Faction.NORTHERN_REALMS, 4, 6,
+            tags = setOf(Tag.MACHINE, Tag.SIEGE_ENGINE),
+            abilities = listOf(Ability(Trigger.ORDER, Effect.Damage(2), row = Row.RANGED, charges = 3, cooldown = 1)),
+            text = "Order (Ranged): Damage an enemy unit by 2. Charges: 3.",
+        ),
+        unit(
+            "nor_vernon", "Vernon Roche", Faction.NORTHERN_REALMS, 7, 10, color = CardColor.GOLD,
+            tags = setOf(Tag.HUMAN, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.SHIELD))),
+            text = "Deploy: Give an allied unit a Shield.",
+        ),
     )
 
-    fun deckFor(faction: Faction): List<Card> = when (faction) {
-        Faction.PAHLAVAN -> pahlavan
-        Faction.DIV -> div
-        Faction.MARVEL -> marvel
-        Faction.ONE_PIECE -> onePiece
-        Faction.GREEK_MYTH -> greekMyth
+    val SCOIATAEL = listOf(
+        unit("sco_commando", "Vrihedd Cadet", Faction.SCOIATAEL, 4, 4, tags = setOf(Tag.ELF, Tag.SOLDIER)),
+        unit("sco_dwarf", "Mahakam Defender", Faction.SCOIATAEL, 5, 6, armor = 2, tags = setOf(Tag.DWARF, Tag.SOLDIER)),
+        unit(
+            "sco_dryad", "Dryad Ranger", Faction.SCOIATAEL, 4, 5, tags = setOf(Tag.DRYAD),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Damage(2), row = Row.RANGED)),
+            text = "Deploy (Ranged): Damage an enemy unit by 2.",
+        ),
+        unit(
+            "sco_treant", "Elder Treant", Faction.SCOIATAEL, 6, 7, armor = 3, tags = setOf(Tag.TREANT, Tag.NATURE),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.DEFENDER))),
+            text = "Deploy: Gain Defender.",
+        ),
+        unit(
+            "sco_iorveth", "Iorveth", Faction.SCOIATAEL, 7, 10, color = CardColor.GOLD,
+            tags = setOf(Tag.ELF, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.ORDER, Effect.Damage(3), charges = 2, cooldown = 1)),
+            text = "Order: Damage an enemy unit by 3. Charges: 2.",
+        ),
+    )
+
+    val SKELLIGE = listOf(
+        unit("ske_raider", "Clan Raider", Faction.SKELLIGE, 4, 4, tags = setOf(Tag.HUMAN, Tag.PIRATE)),
+        unit("ske_drummond", "Drummond Warrior", Faction.SKELLIGE, 6, 6, tags = setOf(Tag.HUMAN, Tag.SOLDIER)),
+        unit(
+            "ske_priestess", "Priestess of Freya", Faction.SKELLIGE, 4, 6, tags = setOf(Tag.HUMAN, Tag.MAGE),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.VITALITY, 3))),
+            text = "Deploy: Give an allied unit Vitality (3).",
+        ),
+        unit(
+            "ske_berserker", "Berserker", Faction.SKELLIGE, 5, 6, tags = setOf(Tag.HUMAN, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.END_OF_TURN, Effect.Boost(1))),
+            text = "At the end of your turn, boost self by 1.",
+        ),
+        unit(
+            "ske_hjalmar", "Hjalmar an Craite", Faction.SKELLIGE, 8, 10, color = CardColor.GOLD,
+            tags = setOf(Tag.HUMAN, Tag.SOLDIER),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Damage(5))),
+            text = "Deploy: Damage an enemy unit by 5.",
+        ),
+    )
+
+    val SYNDICATE = listOf(
+        unit("syn_thug", "Crownsplitter Thug", Faction.SYNDICATE, 4, 4, tags = setOf(Tag.HUMAN, Tag.BANDIT)),
+        unit(
+            "syn_pickpocket", "Pickpocket", Faction.SYNDICATE, 3, 4, tags = setOf(Tag.HUMAN, Tag.BANDIT),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Profit(3))),
+            text = "Deploy: Profit 3.",
+        ),
+        unit(
+            "syn_enforcer", "Tidecloak Enforcer", Faction.SYNDICATE, 6, 7, armor = 1,
+            tags = setOf(Tag.HUMAN, Tag.PIRATE),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Damage(3))),
+            text = "Deploy: Damage an enemy unit by 3.",
+        ),
+        unit(
+            "syn_moorlehem", "Vincent van Moorlehem", Faction.SYNDICATE, 7, 10, color = CardColor.GOLD,
+            tags = setOf(Tag.VAMPIRE, Tag.ARISTOCRAT),
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Destroy)),
+            text = "Deploy: Destroy an enemy unit with a status.",
+        ),
+        special(
+            "syn_bloodygoodfun", "Bloody Good Fun", Faction.SYNDICATE, 5, tags = setOf(Tag.CRIME),
+            effect = Effect.Profit(4), text = "Profit 4.",
+        ),
+    )
+
+    /** Stratagems cost no provisions and are chosen separately from the 25-card list. */
+    val STRATAGEMS = listOf(
+        Card(
+            "str_tactical_advantage", "Tactical Advantage", Faction.NEUTRAL, CardType.STRATAGEM,
+            CardColor.BRONZE, 0, 0, 0, emptySet(),
+            listOf(Ability(Trigger.ORDER, Effect.Boost(4), zeal = true)),
+            text = "Order: Boost an allied unit by 4.",
+        ),
+        Card(
+            "str_enchanted_armor", "Enchanted Armor", Faction.NEUTRAL, CardType.STRATAGEM,
+            CardColor.BRONZE, 0, 0, 0, emptySet(),
+            listOf(Ability(Trigger.ORDER, Effect.Apply(Status.SHIELD), zeal = true)),
+            text = "Order: Give a unit a Shield.",
+        ),
+    )
+
+    val ALL: List<Card> =
+        NEUTRALS + MONSTERS + NILFGAARD + NORTHERN_REALMS + SCOIATAEL + SKELLIGE + SYNDICATE
+
+    fun byId(id: String): Card? = ALL.firstOrNull { it.id == id } ?: STRATAGEMS.firstOrNull { it.id == id }
+
+    fun forFaction(faction: Faction): List<Card> =
+        ALL.filter { it.faction == faction || it.faction == Faction.NEUTRAL }
+
+    /**
+     * Build a legal starter deck for a faction: bronzes doubled up, golds single, filled to the
+     * 25-card minimum without exceeding the provision limit.
+     */
+    fun starterDeck(leader: Leader): Deck {
+        val pool = ALL.filter { it.faction == leader.faction } + NEUTRALS
+        val limit = BASE_PROVISIONS + leader.provisionBonus
+        val cards = mutableListOf<Card>()
+        var spent = 0
+
+        // Golds first (one copy each), then bronzes (two copies), cheapest first so the deck fills.
+        val golds = pool.filter { it.color == CardColor.GOLD }.sortedBy { it.provisions }
+        val bronzes = pool.filter { it.color == CardColor.BRONZE }.sortedBy { it.provisions }
+
+        for (card in golds) {
+            if (cards.size >= MIN_DECK_SIZE) break
+            if (spent + card.provisions <= limit) { cards += card; spent += card.provisions }
+        }
+        var i = 0
+        while (cards.size < MIN_DECK_SIZE && bronzes.isNotEmpty()) {
+            val card = bronzes[i % bronzes.size]
+            if (cards.count { it.id == card.id } < CardColor.BRONZE.copyLimit &&
+                spent + card.provisions <= limit
+            ) {
+                cards += card
+                spent += card.provisions
+            }
+            i++
+            // Every bronze is either maxed out or unaffordable — stop rather than spin.
+            if (i > bronzes.size * CardColor.BRONZE.copyLimit + bronzes.size) break
+        }
+        return Deck(leader, STRATAGEMS.first(), cards)
     }
 }

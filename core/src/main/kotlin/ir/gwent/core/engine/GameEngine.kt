@@ -1,463 +1,432 @@
 package ir.gwent.core.engine
 
-import ir.gwent.core.model.Ability
-import ir.gwent.core.model.Card
-import ir.gwent.core.model.CardDatabase
-import ir.gwent.core.model.Faction
-import ir.gwent.core.model.FactionTrait
-import ir.gwent.core.model.GameState
-import ir.gwent.core.model.Leader
-import ir.gwent.core.model.LeaderAbility
-import ir.gwent.core.model.PlayerState
-import ir.gwent.core.model.Row
-import ir.gwent.core.model.RoundResult
-import ir.gwent.core.model.Side
-import ir.gwent.core.model.other
+import ir.gwent.core.model.*
 import kotlin.random.Random
 
-sealed class GameEvent {
-    data class CardPlayed(val side: Side, val card: Card) : GameEvent()
-    data class Scorched(val destroyed: List<Card>) : GameEvent()
-    data class WeatherChanged(val side: Side, val row: Row) : GameEvent()
-    data class WeatherCleared(val side: Side) : GameEvent()
-    data class Decoyed(val side: Side, val returned: Card, val decoy: Card) : GameEvent()
-    data class MedicRevived(val side: Side, val revived: Card) : GameEvent()
-    data class SpyInfiltrated(val side: Side, val card: Card, val cardsDrawn: Int) : GameEvent()
-    data class Mustered(val side: Side, val called: List<Card>) : GameEvent()
-    data class LeaderUsed(val side: Side, val leader: Leader) : GameEvent()
-    data class Mulliganed(val side: Side, val returned: Card, val drawn: Card?) : GameEvent()
-    data class TraitTriggered(val side: Side, val trait: FactionTrait) : GameEvent()
-    data class Passed(val side: Side) : GameEvent()
-    data class RoundEnded(val result: RoundResult) : GameEvent()
-    data class RoundStarted(val round: Int) : GameEvent()
-    data class MatchEnded(val winner: Side?) : GameEvent()
-    data class InvalidMove(val reason: String) : GameEvent()
+/** A thing a player can do on their turn. */
+sealed interface Action {
+    /** Play a card from hand into [row] at [position] (defaults to the right end of the row). */
+    data class PlayCard(val handIndex: Int, val row: Row, val position: Int = -1, val target: Int? = null) : Action
+
+    /** Trigger an Order ability on a unit already on the board. */
+    data class UseOrder(val uid: Int, val target: Int? = null) : Action
+
+    /** Use the once-per-match leader ability. */
+    data class UseLeader(val target: Int? = null) : Action
+
+    /** Hand control to the opponent, having played or triggered something. */
+    data object EndTurn : Action
+
+    /** Withdraw from the round. Only legal if nothing was played or triggered this turn. */
+    data object Pass : Action
 }
 
-/** Extra input a move needs beyond a card id, for abilities that require a target. */
-sealed class PlayTarget {
-    /** DECOY: id of the friendly, non-hero board card to swap back to hand. */
-    data class DecoyTarget(val boardCardId: String) : PlayTarget()
+/** Why an action was refused. Returned rather than thrown so the AI can probe legality cheaply. */
+data class Rejected(val reason: String)
 
-    /** MEDIC: id of the card in the caster's discard pile to return to hand, if any. */
-    data class MedicRevive(val discardCardId: String?) : PlayTarget()
-}
+class GameEngine(val state: GameState) {
 
-/** Cards drawn at the start of a match. As in Gwent, this hand has to last all three rounds. */
-const val INITIAL_HAND_SIZE = 10
+    /**
+     * Whether the player to move has already spent their turn. Post-Homecoming a turn does not end
+     * when a card is played — the player may then fire Order abilities — but passing is illegal
+     * once anything has been done.
+     */
+    var actedThisTurn: Boolean = false
+        private set
 
-object GameEngine {
+    // ---------------------------------------------------------------- setup
 
-    fun newMatch(factionA: Faction, factionB: Faction, rng: Random = Random.Default): GameState {
-        val a = PlayerState(Side.A, factionA, CardDatabase.deckFor(factionA).shuffled(rng).toMutableList())
-        val b = PlayerState(Side.B, factionB, CardDatabase.deckFor(factionB).shuffled(rng).toMutableList())
-        val state = GameState(a, b, rng)
-        drawCards(a, INITIAL_HAND_SIZE)
-        drawCards(b, INITIAL_HAND_SIZE)
-
-        // A coin toss opens the match, unless exactly one army always takes the first move.
-        val aOpens = a.trait == FactionTrait.ALWAYS_OPENS
-        val bOpens = b.trait == FactionTrait.ALWAYS_OPENS
-        state.starter = when {
-            aOpens && !bOpens -> Side.A
-            bOpens && !aOpens -> Side.B
-            else -> if (rng.nextBoolean()) Side.A else Side.B
+    companion object {
+        fun start(deckA: Deck, deckB: Deck, rng: Random = Random.Default): GameEngine {
+            val a = PlayerState(Side.A, deckA, deckA.cards.shuffled(rng).toMutableList())
+            val b = PlayerState(Side.B, deckB, deckB.cards.shuffled(rng).toMutableList())
+            val state = GameState(a, b, rng)
+            val engine = GameEngine(state)
+            engine.beginMatch()
+            return engine
         }
+    }
+
+    private fun beginMatch() {
+        // The coin flip. The player going first is compensated with an extra mulligan and
+        // their stratagem on the board; the other player's stratagem never enters the game.
+        state.starter = if (state.rng.nextBoolean()) Side.A else Side.B
         state.turn = state.starter
-        return state
-    }
 
-    /**
-     * Effective power of a card given the row it sits in and that row's current contents.
-     * Order matters and follows Gwent: weather floors the value, Tight Bond multiplies it by
-     * the number of copies standing together, then a Horn doubles the result.
-     */
-    fun effectivePower(state: GameState, card: Card, row: Row, rowCards: List<Card>): Int {
-        if (card.isHero) return card.basePower
-        val weathered = row in state.weatheredRows
-        var power = if (weathered) 1 else card.basePower
-        card.bondGroup?.let { group ->
-            val copies = rowCards.count { it.bondGroup == group }
-            if (copies > 1) power *= copies
+        listOf(state.playerA, state.playerB).forEach { p ->
+            repeat(STARTING_HAND) { drawOne(p) }
+            p.mulligansLeft = MULLIGANS_BY_ROUND.getValue(1)
         }
-        if (rowCards.any { it.ability == Ability.HORN }) power *= 2
-        return power
+        val first = state.player(state.starter)
+        first.mulligansLeft += 1
+        first.deckList.stratagem?.let { strat ->
+            first.stratagem = UnitInstance(strat, state.allocateUid())
+        }
     }
 
-    fun rowPower(state: GameState, side: Side, row: Row): Int {
-        val rowCards = state.player(side).board.getValue(row)
-        return rowCards.sumOf { effectivePower(state, it, row, rowCards) }
+    // ---------------------------------------------------------------- draw & mulligan
+
+    private fun drawOne(p: PlayerState): Card? {
+        val card = p.deck.removeFirstOrNull() ?: return null
+        // Hand is capped at 10; anything drawn beyond that is discarded to the graveyard.
+        if (p.hand.size >= HAND_LIMIT) {
+            p.graveyard += card
+            return null
+        }
+        p.hand += card
+        return card
     }
 
-    fun totalPower(state: GameState, side: Side): Int =
-        Row.entries.sumOf { rowPower(state, side, it) }
+    /** Return a card to the deck and draw a replacement. */
+    fun mulligan(side: Side, handIndex: Int): Rejected? {
+        val p = state.player(side)
+        if (p.mulligansLeft <= 0) return Rejected("no mulligans left")
+        val card = p.hand.getOrNull(handIndex) ?: return Rejected("no card at $handIndex")
+        p.hand.removeAt(handIndex)
+        p.deck += card
+        p.deck.shuffle(state.rng)
+        drawOne(p)
+        p.mulligansLeft--
+        return null
+    }
 
-    /**
-     * Why this move would be rejected, or null if it is legal. Exposed so callers that drive
-     * turns in a loop (the AI runner in the UI) can never pick a move that changes nothing and
-     * spin forever.
-     */
-    fun rejectionReason(state: GameState, side: Side, cardId: String, target: PlayTarget?): String? {
-        if (state.matchOver) return "Match is already over"
-        if (state.turn != side) return "Not this player's turn"
-        val player = state.player(side)
-        if (player.passed) return "Player has already passed this round"
-        val card = player.hand.find { it.id == cardId } ?: return "Card not in hand: $cardId"
+    // ---------------------------------------------------------------- actions
 
-        when (card.ability) {
-            Ability.DECOY -> {
-                val decoyTarget = target as? PlayTarget.DecoyTarget ?: return "Decoy requires a target card"
-                val boardCard = findOnBoard(player, decoyTarget.boardCardId) ?: return "Target is not on your board"
-                if (boardCard.isHero) return "Heroes are immune to Decoy"
+    fun legal(side: Side, action: Action): Rejected? {
+        if (state.matchOver) return Rejected("match is over")
+        if (state.turn != side) return Rejected("not your turn")
+        val p = state.player(side)
+        if (p.passed) return Rejected("you have passed this round")
+        return when (action) {
+            is Action.PlayCard -> {
+                val card = p.hand.getOrNull(action.handIndex)
+                    ?: return Rejected("no card at ${action.handIndex}")
+                if (actedThisTurn) return Rejected("already played a card this turn")
+                val target = if (card.disloyal) state.opponent(side) else p
+                if (card.isUnit && !target.rowHasSpace(action.row)) {
+                    Rejected("${action.row} is full (max $ROW_CAPACITY)")
+                } else null
             }
-            Ability.MEDIC -> {
-                val reviveId = (target as? PlayTarget.MedicRevive)?.discardCardId
-                if (reviveId != null && player.discard.none { it.id == reviveId }) {
-                    return "Card not in discard: $reviveId"
-                }
+
+            is Action.UseOrder -> {
+                val unit = findUnit(side, action.uid) ?: return Rejected("no such unit")
+                if (!unit.abilitiesActive) return Rejected("${unit.card.name} is locked")
+                if (!unit.orderReady) return Rejected("${unit.card.name} is not ready yet")
+                if (unit.cooldownLeft > 0) return Rejected("${unit.card.name} is on cooldown")
+                if (unit.charges <= 0) return Rejected("${unit.card.name} has no charges left")
+                if (unit.card.abilities.none { it.trigger == Trigger.ORDER }) {
+                    Rejected("${unit.card.name} has no Order ability")
+                } else null
             }
-            else -> Unit
+
+            is Action.UseLeader ->
+                if (p.leaderUsed) Rejected("leader ability already used") else null
+
+            Action.Pass ->
+                // Passing requires a clean turn: no card played, no Order or leader used.
+                if (actedThisTurn) Rejected("cannot pass after acting this turn") else null
+
+            Action.EndTurn ->
+                if (!actedThisTurn) Rejected("nothing done this turn — play a card or pass") else null
+        }
+    }
+
+    fun perform(side: Side, action: Action): Rejected? {
+        legal(side, action)?.let { return it }
+        val p = state.player(side)
+        when (action) {
+            is Action.PlayCard -> {
+                val card = p.hand.removeAt(action.handIndex)
+                playCard(p, card, action.row, action.position, action.target)
+                actedThisTurn = true
+            }
+
+            is Action.UseOrder -> {
+                val unit = findUnit(side, action.uid)!!
+                val ability = unit.card.abilities.first { it.trigger == Trigger.ORDER }
+                resolve(p, ability.effect, action.target, unit)
+                unit.charges--
+                unit.cooldownLeft = ability.cooldown
+                unit.orderReady = unit.charges > 0 && ability.cooldown == 0
+                actedThisTurn = true
+            }
+
+            is Action.UseLeader -> {
+                resolve(p, p.leader.ability.effect, action.target, null)
+                p.leaderUsed = true
+                actedThisTurn = true
+            }
+
+            Action.Pass -> {
+                p.passed = true
+                endTurn(side)
+            }
+
+            Action.EndTurn -> endTurn(side)
         }
         return null
     }
 
-    fun canPass(state: GameState, side: Side): Boolean =
-        !state.matchOver && state.turn == side && !state.player(side).passed
-
-    fun playCard(state: GameState, side: Side, cardId: String, target: PlayTarget? = null): List<GameEvent> {
-        rejectionReason(state, side, cardId, target)?.let { return listOf(GameEvent.InvalidMove(it)) }
-
-        val player = state.player(side)
-        val card = player.hand.first { it.id == cardId }
-        val events = mutableListOf<GameEvent>()
-
-        when (card.ability) {
-            Ability.DECOY -> {
-                val boardCard = findOnBoard(player, (target as PlayTarget.DecoyTarget).boardCardId)!!
-                player.hand.remove(card)
-                player.board.getValue(boardCard.row).remove(boardCard)
-                player.hand.add(boardCard)
-                val decoy = card.copy(row = boardCard.row, basePower = 0, ability = Ability.NONE, isHero = false)
-                player.board.getValue(boardCard.row).add(decoy)
-                events += GameEvent.CardPlayed(side, card)
-                events += GameEvent.Decoyed(side, boardCard, decoy)
-            }
-
-            Ability.WEATHER -> {
-                player.hand.remove(card)
-                player.discard.add(card)
-                state.weatheredRows.add(card.row)
-                events += GameEvent.CardPlayed(side, card)
-                events += GameEvent.WeatherChanged(side, card.row)
-            }
-
-            Ability.CLEAR_WEATHER -> {
-                player.hand.remove(card)
-                player.discard.add(card)
-                state.weatheredRows.clear()
-                events += GameEvent.CardPlayed(side, card)
-                events += GameEvent.WeatherCleared(side)
-            }
-
-            Ability.SPY -> {
-                player.hand.remove(card)
-                state.player(side.other()).board.getValue(card.row).add(card)
-                val drawn = drawCards(player, 2)
-                events += GameEvent.CardPlayed(side, card)
-                events += GameEvent.SpyInfiltrated(side, card, drawn)
-            }
-
-            Ability.MEDIC -> {
-                val reviveId = (target as? PlayTarget.MedicRevive)?.discardCardId
-                player.hand.remove(card)
-                player.board.getValue(card.row).add(card)
-                events += GameEvent.CardPlayed(side, card)
-                if (reviveId != null) {
-                    val revived = player.discard.first { it.id == reviveId }
-                    player.discard.remove(revived)
-                    player.hand.add(revived)
-                    events += GameEvent.MedicRevived(side, revived)
-                }
-            }
-
-            Ability.SCORCH -> {
-                player.hand.remove(card)
-                player.board.getValue(card.row).add(card)
-                events += GameEvent.CardPlayed(side, card)
-                events += applyScorch(state)
-            }
-
-            Ability.NONE, Ability.HORN -> {
-                player.hand.remove(card)
-                player.board.getValue(card.row).add(card)
-                events += GameEvent.CardPlayed(side, card)
-            }
+    private fun playCard(p: PlayerState, card: Card, row: Row, position: Int, target: Int?) {
+        // Disloyal cards are played onto the opponent's side and pick up Spying there.
+        val owner = if (card.disloyal) state.opponent(p.side) else p
+        if (card.isUnit || card.type == CardType.ARTIFACT) {
+            val unit = UnitInstance(card, state.allocateUid())
+            if (card.disloyal) unit.apply(Status.SPYING)
+            val slot = owner.rows.getValue(row)
+            val index = if (position in 0..slot.size) position else slot.size
+            slot.add(index, unit)
+            // Deploy fires only on a played card, and only if the row clause matches.
+            card.abilities
+                .filter { it.trigger == Trigger.DEPLOY && (it.row == null || it.row == row) }
+                .forEach { resolve(p, it.effect, target, unit) }
+        } else {
+            // Specials resolve and go straight to the graveyard.
+            card.abilities.filter { it.trigger == Trigger.DEPLOY }
+                .forEach { resolve(p, it.effect, target, null) }
+            p.graveyard += card
         }
-
-        events += applyMuster(state, side, card)
-        advanceTurn(state)
-        events += maybeResolveRound(state)
-        return events
-    }
-
-    fun pass(state: GameState, side: Side): List<GameEvent> {
-        if (state.matchOver) return listOf(GameEvent.InvalidMove("Match is already over"))
-        if (state.turn != side) return listOf(GameEvent.InvalidMove("Not this player's turn"))
-        val player = state.player(side)
-        if (player.passed) return listOf(GameEvent.InvalidMove("Player has already passed this round"))
-
-        player.passed = true
-        val events = mutableListOf<GameEvent>(GameEvent.Passed(side))
-        advanceTurn(state)
-        events += maybeResolveRound(state)
-        return events
-    }
-
-    /** Muster: the played card calls every other copy of its group out of the deck and hand. */
-    private fun applyMuster(state: GameState, side: Side, played: Card): List<GameEvent> {
-        val group = played.musterGroup ?: return emptyList()
-        val player = state.player(side)
-        val called = (player.deck + player.hand).filter { it.musterGroup == group && it.id != played.id }
-        if (called.isEmpty()) return emptyList()
-        called.forEach { card ->
-            player.deck.remove(card)
-            player.hand.remove(card)
-            player.board.getValue(card.row).add(card)
+        // Anything played triggers allies that watch for it (Harmony, Thrive, Resupply...).
+        p.units().filter { it.abilitiesActive }.forEach { ally ->
+            ally.card.abilities.filter { it.trigger == Trigger.ON_ALLY_PLAYED }
+                .forEach { resolve(p, it.effect, null, ally) }
         }
-        return listOf(GameEvent.Mustered(side, called))
+        cleanupDead()
     }
 
-    /** Swap a card back into the deck for a fresh one, before the match begins. */
-    fun mulligan(state: GameState, side: Side, cardId: String, rng: Random = Random.Default): List<GameEvent> {
-        if (state.round != 1 || state.roundHistory.isNotEmpty()) {
-            return listOf(GameEvent.InvalidMove("Cards can only be swapped before the match starts"))
+    // ---------------------------------------------------------------- effects
+
+    private fun findUnit(side: Side, uid: Int): UnitInstance? =
+        state.player(side).units().firstOrNull { it.uid == uid }
+
+    private fun anyUnit(uid: Int): UnitInstance? =
+        (state.playerA.units() + state.playerB.units()).firstOrNull { it.uid == uid }
+
+    /** Defender forces targeting onto itself while it is on the row. */
+    private fun targetable(unit: UnitInstance): Boolean {
+        if (unit.has(Status.IMMUNITY)) return false
+        val owner = if (state.playerA.units().contains(unit)) state.playerA else state.playerB
+        val row = owner.rows.entries.firstOrNull { it.value.contains(unit) }?.key ?: return true
+        val defender = owner.rows.getValue(row).firstOrNull { it.has(Status.DEFENDER) }
+        return defender == null || defender === unit
+    }
+
+    private fun resolve(actor: PlayerState, effect: Effect, targetUid: Int?, self: UnitInstance?) {
+        val target = targetUid?.let { anyUnit(it) }?.takeIf { targetable(it) }
+        when (effect) {
+            is Effect.Boost -> (target ?: self)?.boost(effect.amount)
+            is Effect.Strengthen -> (target ?: self)?.let {
+                it.basePower += effect.amount
+                it.power += effect.amount
+            }
+            is Effect.Damage -> target?.let { applyDamage(it, effect.amount) }
+            is Effect.Heal -> (target ?: self)?.heal(effect.amount)
+            Effect.Reset -> (target ?: self)?.reset()
+            Effect.Destroy -> target?.let { it.power = 0 }
+            Effect.Banish -> target?.let { banish(it) }
+            is Effect.Apply -> (target ?: self)?.let { applyStatus(it, effect.status, effect.duration) }
+            Effect.Purify -> (target ?: self)?.purify()
+            is Effect.Summon -> Unit // resolved by CardDatabase-aware callers
+            is Effect.Draw -> repeat(effect.count) { drawOne(actor) }
+            is Effect.Profit -> actor.addCoins(effect.amount)
+            Effect.None -> Unit
         }
-        val player = state.player(side)
-        if (player.mulligansLeft <= 0) return listOf(GameEvent.InvalidMove("No swaps left"))
-        val card = player.hand.find { it.id == cardId }
-            ?: return listOf(GameEvent.InvalidMove("Card not in hand: $cardId"))
-        if (player.deck.isEmpty()) return listOf(GameEvent.InvalidMove("Deck is empty"))
-
-        player.hand.remove(card)
-        val replacement = player.deck.removeAt(rng.nextInt(player.deck.size))
-        player.hand.add(replacement)
-        player.deck.add(card)
-        player.mulligansLeft--
-        return listOf(GameEvent.Mulliganed(side, card, replacement))
+        cleanupDead()
     }
 
-    fun canUseLeader(state: GameState, side: Side): Boolean =
-        !state.matchOver && state.turn == side && !state.player(side).passed && !state.player(side).leaderUsed
+    /** Poison destroys a unit that is already poisoned rather than stacking. */
+    private fun applyStatus(unit: UnitInstance, status: Status, duration: Int) {
+        if (status == Status.POISON && unit.has(Status.POISON)) {
+            unit.power = 0
+            return
+        }
+        unit.apply(status, duration)
+    }
 
-    /** Leader abilities are once per match and cost the turn, as playing a card would. */
-    fun useLeader(state: GameState, side: Side): List<GameEvent> {
-        if (state.matchOver) return listOf(GameEvent.InvalidMove("Match is already over"))
-        if (state.turn != side) return listOf(GameEvent.InvalidMove("Not this player's turn"))
-        val player = state.player(side)
-        if (player.passed) return listOf(GameEvent.InvalidMove("Player has already passed this round"))
-        if (player.leaderUsed) return listOf(GameEvent.InvalidMove("Leader ability already used"))
+    private fun applyDamage(unit: UnitInstance, amount: Int) {
+        unit.takeDamage(amount)
+    }
 
-        player.leaderUsed = true
-        val events = mutableListOf<GameEvent>(GameEvent.LeaderUsed(side, player.leader))
+    private fun banish(unit: UnitInstance) {
+        owningPlayer(unit)?.let { owner ->
+            owner.rows.values.forEach { it.remove(unit) }
+            owner.banished += unit.card
+        }
+    }
 
-        when (player.leader.ability) {
-            LeaderAbility.CLEAR_ALL_WEATHER -> {
-                state.weatheredRows.clear()
-                events += GameEvent.WeatherCleared(side)
-            }
-            LeaderAbility.DRAW_CARD -> {
-                drawCards(player, 1)
-            }
-            LeaderAbility.SCORCH_ENEMY_STRONGEST -> {
-                val enemy = state.player(side.other())
-                val candidates = Row.entries.flatMap { enemy.board.getValue(it) }.filter { !it.isHero }
-                if (candidates.isNotEmpty()) {
-                    val highest = candidates.maxOf { c ->
-                        effectivePower(state, c, c.row, enemy.board.getValue(c.row))
+    private fun owningPlayer(unit: UnitInstance): PlayerState? = when {
+        state.playerA.units().contains(unit) -> state.playerA
+        state.playerB.units().contains(unit) -> state.playerB
+        else -> null
+    }
+
+    /**
+     * Move dead units off the board. Doomed sends them to banishment instead of the graveyard,
+     * and a Deathwish fires only on a genuine move to the graveyard.
+     */
+    private fun cleanupDead() {
+        listOf(state.playerA, state.playerB).forEach { p ->
+            p.rows.forEach { (_, units) ->
+                units.filter { it.isDead }.forEach { dead ->
+                    units.remove(dead)
+                    if (dead.has(Status.DOOMED)) {
+                        p.banished += dead.card
+                    } else {
+                        p.graveyard += dead.card
+                        if (dead.abilitiesActive) {
+                            dead.card.abilities.filter { it.trigger == Trigger.DEATHWISH }
+                                .forEach { resolve(p, it.effect, null, null) }
+                        }
                     }
-                    val destroyed = candidates.filter { c ->
-                        effectivePower(state, c, c.row, enemy.board.getValue(c.row)) == highest
+                    if (dead.has(Status.BOUNTY)) {
+                        state.opponent(p.side).addCoins(dead.basePower)
                     }
-                    destroyed.forEach { c ->
-                        enemy.board.getValue(c.row).remove(c)
-                        enemy.discard.add(c)
-                    }
-                    events += GameEvent.Scorched(destroyed)
-                }
-            }
-            LeaderAbility.HORN_STRONGEST_ROW -> {
-                val best = Row.entries.maxByOrNull { rowPower(state, side, it) }
-                if (best != null && player.board.getValue(best).isNotEmpty()) {
-                    val banner = Card(
-                        id = "${player.leader.id}-banner",
-                        name = "${player.leader.name}'s Banner",
-                        faction = player.faction,
-                        row = best,
-                        basePower = 0,
-                        ability = Ability.HORN,
-                    )
-                    player.board.getValue(best).add(banner)
-                    events += GameEvent.CardPlayed(side, banner)
-                }
-            }
-            LeaderAbility.WEATHER_ENEMY_STRONGEST_ROW -> {
-                val best = Row.entries.maxByOrNull { rowPower(state, side.other(), it) }
-                if (best != null) {
-                    state.weatheredRows.add(best)
-                    events += GameEvent.WeatherChanged(side, best)
                 }
             }
         }
-
-        advanceTurn(state)
-        events += maybeResolveRound(state)
-        return events
     }
 
-    /** Returns how many cards were actually drawn, which can be fewer than asked near deck-out. */
-    private fun drawCards(player: PlayerState, n: Int): Int {
-        var drawn = 0
-        repeat(n) {
-            if (player.deck.isNotEmpty()) {
-                player.hand.add(player.deck.removeAt(player.deck.lastIndex))
-                drawn++
+    // ---------------------------------------------------------------- turn flow
+
+    private fun endTurn(side: Side) {
+        tickEndOfTurn(state.player(side))
+        actedThisTurn = false
+
+        // Running out of cards passes you automatically — including on the turn you spend
+        // your last card, before control ever reaches the opponent.
+        val acting = state.player(side)
+        if (acting.hand.isEmpty() && !acting.passed) acting.passed = true
+
+        if (state.roundOver) {
+            finishRound()
+            return
+        }
+        // Control passes to the opponent unless they have already passed.
+        val next = side.other()
+        state.turn = if (state.player(next).passed) side else next
+
+        val mover = state.player(state.turn)
+        if (mover.hand.isEmpty() && !mover.passed) {
+            mover.passed = true
+            if (state.roundOver) { finishRound(); return }
+            state.turn = state.turn.other()
+        }
+        startTurn(state.player(state.turn))
+    }
+
+    private fun startTurn(p: PlayerState) {
+        applyRowEffects(p)
+        p.units().forEach { unit ->
+            if (unit.cooldownLeft > 0) unit.cooldownLeft--
+            if (unit.cooldownLeft == 0 && unit.charges > 0) unit.orderReady = true
+            if (unit.abilitiesActive) {
+                unit.card.abilities.filter { it.trigger == Trigger.START_OF_TURN }
+                    .forEach { resolve(p, it.effect, null, unit) }
             }
         }
-        return drawn
+        cleanupDead()
     }
 
-    private fun applyScorch(state: GameState): GameEvent.Scorched {
-        val all = allBoardCards(state).filter { !it.isHero }
-        if (all.isEmpty()) return GameEvent.Scorched(emptyList())
-        val highest = all.maxOf { c ->
-            val owner = state.player(sideOf(state, c))
-            effectivePower(state, c, c.row, owner.board.getValue(c.row))
+    /** Weather and hazards tick at the start of the owner's turn, on one row at a time. */
+    private fun applyRowEffects(p: PlayerState) {
+        Row.entries.forEach { row ->
+            val kind = state.effectOn(p.side, row) ?: return@forEach
+            val units = p.rows.getValue(row).filter { !it.has(Status.IMMUNITY) }
+            if (units.isEmpty()) return@forEach
+            when (kind) {
+                RowEffectKind.FOG -> units.minByOrNull { it.power }?.let { applyDamage(it, 2) }
+                RowEffectKind.FROST -> units.maxByOrNull { it.power }?.let { applyDamage(it, 2) }
+                RowEffectKind.RAIN -> units.shuffled(state.rng).take(2).forEach { applyDamage(it, 1) }
+                RowEffectKind.STORM -> units.forEach { applyDamage(it, 1) }
+            }
         }
-        val destroyed = all.filter { c ->
-            val owner = state.player(sideOf(state, c))
-            effectivePower(state, c, c.row, owner.board.getValue(c.row)) == highest
-        }
-        destroyed.forEach { c ->
-            val owner = state.player(sideOf(state, c))
-            owner.board.getValue(c.row).remove(c)
-            owner.discard.add(c)
-        }
-        return GameEvent.Scorched(destroyed)
+        cleanupDead()
     }
 
-    private fun allBoardCards(state: GameState): List<Card> =
-        Row.entries.flatMap { state.playerA.board.getValue(it) } +
-            Row.entries.flatMap { state.playerB.board.getValue(it) }
-
-    private fun sideOf(state: GameState, card: Card): Side =
-        if (Row.entries.any { state.playerA.board.getValue(it).contains(card) }) Side.A else Side.B
-
-    private fun findOnBoard(player: PlayerState, cardId: String): Card? =
-        Row.entries.firstNotNullOfOrNull { row -> player.board.getValue(row).find { it.id == cardId } }
-
-    private fun advanceTurn(state: GameState) {
-        val other = state.turn.other()
-        state.turn = when {
-            !state.player(other).passed -> other
-            !state.player(state.turn).passed -> state.turn
-            else -> state.turn // both passed; caller resolves the round next
+    /** Bleeding, Vitality and Rupture resolve at the end of the controller's turn. */
+    private fun tickEndOfTurn(p: PlayerState) {
+        p.units().forEach { unit ->
+            unit.statuses[Status.BLEEDING]?.let { turns ->
+                applyDamage(unit, 1)
+                if (turns <= 1) unit.statuses.remove(Status.BLEEDING)
+                else unit.statuses[Status.BLEEDING] = turns - 1
+            }
+            unit.statuses[Status.VITALITY]?.let { turns ->
+                unit.boost(1)
+                if (turns <= 1) unit.statuses.remove(Status.VITALITY)
+                else unit.statuses[Status.VITALITY] = turns - 1
+            }
+            if (unit.has(Status.RUPTURE)) {
+                applyDamage(unit, unit.basePower)
+                if (!unit.isDead) unit.statuses.remove(Status.RUPTURE)
+            }
+            if (unit.abilitiesActive) {
+                unit.card.abilities.filter { it.trigger == Trigger.END_OF_TURN }
+                    .forEach { resolve(p, it.effect, null, unit) }
+            }
         }
+        cleanupDead()
     }
 
-    private fun maybeResolveRound(state: GameState): List<GameEvent> {
-        if (!(state.playerA.passed && state.playerB.passed)) return emptyList()
+    // ---------------------------------------------------------------- rounds
 
-        val powerA = totalPower(state, Side.A)
-        val powerB = totalPower(state, Side.B)
-        val events = mutableListOf<GameEvent>()
-
-        // A level round is lost by both — unless exactly one army wins ties.
-        val aWinsTies = state.playerA.trait == FactionTrait.WIN_TIES
-        val bWinsTies = state.playerB.trait == FactionTrait.WIN_TIES
+    private fun finishRound() {
+        val a = state.playerA.score()
+        val b = state.playerB.score()
+        // A tie awards a crown to both players, which can end the match 2-2.
         val winner = when {
-            powerA > powerB -> Side.A
-            powerB > powerA -> Side.B
-            aWinsTies && !bWinsTies -> Side.A.also {
-                events += GameEvent.TraitTriggered(Side.A, FactionTrait.WIN_TIES)
-            }
-            bWinsTies && !aWinsTies -> Side.B.also {
-                events += GameEvent.TraitTriggered(Side.B, FactionTrait.WIN_TIES)
-            }
+            a > b -> Side.A
+            b > a -> Side.B
             else -> null
         }
-
         when (winner) {
-            Side.A -> { state.playerA.roundsWon++; state.playerB.lives-- }
-            Side.B -> { state.playerB.roundsWon++; state.playerA.lives-- }
-            null -> { state.playerA.lives--; state.playerB.lives-- }
+            Side.A -> state.playerA.crowns++
+            Side.B -> state.playerB.crowns++
+            null -> { state.playerA.crowns++; state.playerB.crowns++ }
         }
+        state.roundHistory += RoundResult(state.round, a, b, winner)
 
-        // The winner's army may draw on a won round.
-        winner?.let { side ->
-            val p = state.player(side)
-            if (p.trait == FactionTrait.DRAW_ON_ROUND_WIN && p.deck.isNotEmpty()) {
-                drawCards(p, 1)
-                events += GameEvent.TraitTriggered(side, FactionTrait.DRAW_ON_ROUND_WIN)
-            }
-        }
-
-        val result = RoundResult(state.round, powerA, powerB, winner)
-        state.roundHistory.add(result)
-        events += GameEvent.RoundEnded(result)
-
-        val aOut = state.playerA.lives <= 0
-        val bOut = state.playerB.lives <= 0
-        if (aOut || bOut) {
+        if (state.playerA.crowns >= CROWNS_TO_WIN || state.playerB.crowns >= CROWNS_TO_WIN) {
             state.matchOver = true
             state.matchWinner = when {
-                aOut && bOut -> null // both ran out in the same round: a drawn match
-                aOut -> Side.B
-                else -> Side.A
+                state.playerA.crowns > state.playerB.crowns -> Side.A
+                state.playerB.crowns > state.playerA.crowns -> Side.B
+                else -> null
             }
-            events += GameEvent.MatchEnded(state.matchWinner)
-            return events
+            return
         }
+        beginNextRound(winner)
+    }
 
-        // Board clears between rounds: every card in play is discarded, like a fresh battlefield.
-        listOf(state.playerA, state.playerB).forEach { player ->
-            val kept = discardBoard(player, state.rng)
-            if (kept != null) events += GameEvent.TraitTriggered(player.side, FactionTrait.KEEP_RANDOM_UNIT)
-        }
-        state.weatheredRows.clear()
-
-        // The player who lost the round opens the next one; after a draw the opener is unchanged.
-        state.starter = winner?.other() ?: state.starter
+    private fun beginNextRound(previousWinner: Side?) {
         state.round++
-        state.turn = state.starter
-        state.playerA.passed = false
-        state.playerB.passed = false
-
-        if (state.round == 3) {
-            listOf(state.playerA, state.playerB).forEach { player ->
-                if (player.trait == FactionTrait.RECOVER_AT_ROUND_THREE && player.discard.isNotEmpty()) {
-                    val recovered = player.discard.removeAt(state.rng.nextInt(player.discard.size))
-                    player.hand.add(recovered)
-                    events += GameEvent.TraitTriggered(player.side, FactionTrait.RECOVER_AT_ROUND_THREE)
+        listOf(state.playerA, state.playerB).forEach { p ->
+            // Units leave the board unless they have Resilience, which returns them at base power
+            // with boosts and armour stripped.
+            p.rows.forEach { (_, units) ->
+                val survivors = units.filter { it.has(Status.RESILIENCE) }
+                units.filterNot { it.has(Status.RESILIENCE) }.forEach { gone ->
+                    if (gone.has(Status.DOOMED)) p.banished += gone.card else p.graveyard += gone.card
+                }
+                units.clear()
+                survivors.forEach { s ->
+                    s.statuses.remove(Status.RESILIENCE)
+                    s.power = s.basePower
+                    s.armor = 0
+                    units += s
                 }
             }
+            p.passed = false
+            p.coins /= 2
+            repeat(DRAW_PER_ROUND) { drawOne(p) }
+            p.mulligansLeft = MULLIGANS_BY_ROUND[state.round] ?: 1
         }
-
-        events += GameEvent.RoundStarted(state.round)
-        return events
+        state.rowEffects.clear()
+        // The previous round's winner moves first; after a draw, the round's starter keeps it.
+        state.starter = previousWinner ?: state.starter
+        state.turn = state.starter
+        actedThisTurn = false
     }
 
-    /** Clears the board to the graveyard, returning the unit held back by a faction trait. */
-    private fun discardBoard(player: PlayerState, rng: Random): Card? {
-        val onBoard = Row.entries.flatMap { player.board.getValue(it) }
-        val keep = if (player.trait == FactionTrait.KEEP_RANDOM_UNIT && onBoard.isNotEmpty()) {
-            onBoard.filter { it.basePower > 0 }.randomOrNull(rng)
-        } else null
-
-        Row.entries.forEach { row ->
-            val cards = player.board.getValue(row)
-            player.discard.addAll(cards.filter { it.id != keep?.id })
-            cards.retainAll { it.id == keep?.id }
-        }
-        return keep
-    }
+    fun result(): MatchResult? = if (state.matchOver) MatchResult(state.matchWinner) else null
 }
