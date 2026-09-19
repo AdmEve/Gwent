@@ -11,108 +11,177 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import ir.gwent.core.model.CardColor
 import ir.gwent.core.model.Faction
 
-// Deep, desaturated battlefield tones so gold leaf and faction colors carry the eye.
+/*
+ * Palette taken from playgwent.com's own stylesheets, so the game reads as GWENT rather than as a
+ * generic dark card game. The two that matter most for play are BoostGreen and DamageRed: in the
+ * real game a unit's power number turns green when boosted above base and red when damaged below
+ * it, which is how you read the board at a glance.
+ *
+ * The display faces (GWENT, HalisGR) are proprietary and deliberately NOT bundled. [DisplayFamily]
+ * falls back to a system serif, so the UI is correct without them and exact with them.
+ */
+
+// --- ground -----------------------------------------------------------------
 val Ink = Color(0xFF05070A)
-val BoardDeep = Color(0xFF0A0D12)
-val BoardMid = Color(0xFF151B26)
-val PanelBackground = Color(0xFF161B24)
-val RowSlotBackground = Color(0xFF0E121A)
-val RowSlotLit = Color(0xFF1A2231)
-val CardBackground = Color(0xFF1A202A)
-val CardBackgroundHi = Color(0xFF2C3543)
+val BoardDeep = Color(0xFF0B0A06)
+val BoardMid = Color(0xFF1B160A)          // #1b160a, the site's dark ground
+val PanelBackground = Color(0xFF16130C)
+val RowSlot = Color(0xFF12100A)
+val RowSlotLit = Color(0xFF241D0F)
 
-val GoldLight = Color(0xFFF7E6B6)
-val GoldText = Color(0xFFE1C67C)
-val GoldDeep = Color(0xFF7B5D22)
-val HeroGold = Color(0xFFDCB74E)
-val MutedText = Color(0xFF8C99AD)
-val FrostTint = Color(0xFFAAD0EC)
-val WeatherTint = Color(0xFF4A7BA6)
-val DangerRed = Color(0xFFCE4F45)
+// --- gold leaf --------------------------------------------------------------
+val GoldLight = Color(0xFFFADF7A)         // #fadf7a
+val GoldPale = Color(0xFFFFEC88)          // #ffec88
+val GoldText = Color(0xFFE2A73E)          // #e2a73e
+val GoldDeep = Color(0xFFBF9437)          // #bf9437
+val GoldBright = Color(0xFFFEC100)        // #fec100
+val GoldMuted = Color(0xFFE7C567)         // #e7c567
 
-/** Struck-metal look: dark at the edges, bright along the middle. */
-val MetalGold = Brush.linearGradient(listOf(GoldDeep, GoldLight, Color(0xFFB08A38), GoldLight, GoldDeep))
-val MetalSilver = Brush.linearGradient(listOf(Color(0xFF454E5C), Color(0xFFC3CDDA), Color(0xFF6A7484), Color(0xFF454E5C)))
+// --- state colours ----------------------------------------------------------
+val BoostGreen = Color(0xFF18DD91)        // #18dd91 — power above base
+val BoostGreenDeep = Color(0xFF00C389)    // #00c389
+val DamageRed = Color(0xFFB91818)         // #b91818 — power below base
+val Parchment = Color(0xFFD9D8CB)         // #d9d8cb — neutral power text
+val ParchmentDim = Color(0xFFD0CFC3)
+val MutedText = Color(0xFF8C8672)
+val ArmorSteel = Color(0xFFBAC4D0)
+
+// --- metals -----------------------------------------------------------------
+val MetalGold = Brush.linearGradient(listOf(GoldDeep, GoldLight, GoldDeep, GoldPale, GoldDeep))
 val MetalBronze = Brush.linearGradient(listOf(Color(0xFF4A3520), Color(0xFFB98B54), Color(0xFF4A3520)))
+
+/** Bronze and gold borders are how you tell a card's rarity class at a glance. */
+fun frameBrush(color: CardColor): Brush = when (color) {
+    CardColor.GOLD -> MetalGold
+    CardColor.BRONZE -> MetalBronze
+}
 
 class FactionPalette(val accent: Color, val deep: Color, val glow: Color)
 
 fun factionPalette(faction: Faction): FactionPalette = when (faction) {
-    Faction.PAHLAVAN -> FactionPalette(Color(0xFFD9AE3C), Color(0xFF4A3410), Color(0xFFFFD873))
-    Faction.DIV -> FactionPalette(Color(0xFFB03A32), Color(0xFF3D1210), Color(0xFFFF7A6A))
-    Faction.MARVEL -> FactionPalette(Color(0xFFE23B3B), Color(0xFF3F0E10), Color(0xFFFF7B7B))
-    Faction.ONE_PIECE -> FactionPalette(Color(0xFF2E8BD6), Color(0xFF0E2B45), Color(0xFF6FC2FF))
-    Faction.GREEK_MYTH -> FactionPalette(Color(0xFF6C8BEA), Color(0xFF17224A), Color(0xFFA8BEFF))
+    Faction.NEUTRAL -> FactionPalette(Color(0xFFBFB39A), Color(0xFF2A2419), Color(0xFFE6DCC6))
+    Faction.MONSTERS -> FactionPalette(Color(0xFF8E2F24), Color(0xFF2B0F0B), Color(0xFFD9695A))
+    Faction.NILFGAARD -> FactionPalette(Color(0xFFC9A227), Color(0xFF1A1710), Color(0xFFF2D879))
+    Faction.NORTHERN_REALMS -> FactionPalette(Color(0xFF3B7BC4), Color(0xFF0E1E33), Color(0xFF86BEF5))
+    Faction.SCOIATAEL -> FactionPalette(Color(0xFF4E8C3A), Color(0xFF13260F), Color(0xFF93D477))
+    Faction.SKELLIGE -> FactionPalette(Color(0xFF2E6F8E), Color(0xFF0C2029), Color(0xFF79C4E0))
+    Faction.SYNDICATE -> FactionPalette(Color(0xFF7C4A9E), Color(0xFF22102C), Color(0xFFC08FE0))
 }
 
 fun factionAccent(faction: Faction): Color = factionPalette(faction).accent
 
 fun factionLabel(faction: Faction): String = when (faction) {
-    Faction.PAHLAVAN -> "Pahlavans"
-    Faction.DIV -> "Div"
-    Faction.MARVEL -> "Marvel"
-    Faction.ONE_PIECE -> "One Piece"
-    Faction.GREEK_MYTH -> "Greek Myth"
+    Faction.NEUTRAL -> "Neutral"
+    Faction.MONSTERS -> "Monsters"
+    Faction.NILFGAARD -> "Nilfgaard"
+    Faction.NORTHERN_REALMS -> "Northern Realms"
+    Faction.SCOIATAEL -> "Scoia'tael"
+    Faction.SKELLIGE -> "Skellige"
+    Faction.SYNDICATE -> "Syndicate"
 }
 
 fun factionMotto(faction: Faction): String = when (faction) {
-    Faction.PAHLAVAN -> "Heroes of the Book of Kings"
-    Faction.DIV -> "Demons of Mazandaran"
-    Faction.MARVEL -> "Earth's mightiest"
-    Faction.ONE_PIECE -> "Pirates of the Grand Line"
-    Faction.GREEK_MYTH -> "Gods and heroes of Hellas"
+    Faction.NEUTRAL -> "Sellswords and wanderers"
+    Faction.MONSTERS -> "They attack in hordes, and consume their own kin"
+    Faction.NILFGAARD -> "Diplomacy, subterfuge, and the long knife"
+    Faction.NORTHERN_REALMS -> "Numbers, armour, and engines of war"
+    Faction.SCOIATAEL -> "Ambushes, traps, and guerilla support"
+    Faction.SKELLIGE -> "Death is a door they walk back through"
+    Faction.SYNDICATE -> "No crime too hideous, for the right coin"
 }
+
+/**
+ * The display face. GWENT-ExtraBold is proprietary and not bundled; drop it in at
+ * `res/font/gwent_extrabold.ttf` and swap this to `FontFamily(Font(R.font.gwent_extrabold))`
+ * for exact fidelity.
+ */
+val DisplayFamily = FontFamily.Serif
+
+/** Power numbers are condensed in the real game, which is why they read at small sizes. */
+val NumeralFamily = FontFamily.SansSerif
 
 private val DeepShadow = Shadow(Color(0xCC000000), Offset(0f, 3f), 10f)
 
 val DisplayTitle = TextStyle(
-    fontFamily = FontFamily.Serif,
+    fontFamily = DisplayFamily,
     fontWeight = FontWeight.Bold,
     fontSize = 34.sp,
-    letterSpacing = 3.sp,
+    letterSpacing = 4.sp,
     color = GoldLight,
     shadow = DeepShadow,
 )
 
 val SectionTitle = TextStyle(
-    fontFamily = FontFamily.Serif,
+    fontFamily = DisplayFamily,
     fontWeight = FontWeight.Bold,
-    fontSize = 15.sp,
+    fontSize = 14.sp,
     letterSpacing = 2.sp,
     color = GoldText,
 )
 
 val CardName = TextStyle(
-    fontFamily = FontFamily.Serif,
+    fontFamily = DisplayFamily,
     fontWeight = FontWeight.SemiBold,
-    fontSize = 10.sp,
-    letterSpacing = 0.3.sp,
+    fontSize = 9.sp,
+    letterSpacing = 0.2.sp,
     color = Color(0xFFEFE3CB),
     shadow = Shadow(Color(0xDD000000), Offset(0f, 1f), 3f),
 )
 
+/** The number in the corner gem. Colour is applied per-unit by power state. */
+val PowerNumeral = TextStyle(
+    fontFamily = NumeralFamily,
+    fontWeight = FontWeight.Black,
+    fontSize = 15.sp,
+    color = Parchment,
+    shadow = Shadow(Color(0xFF000000), Offset(0f, 1f), 2f),
+)
+
+val ScoreNumeral = TextStyle(
+    fontFamily = NumeralFamily,
+    fontWeight = FontWeight.Black,
+    fontSize = 22.sp,
+    color = Parchment,
+    shadow = DeepShadow,
+)
+
 val BannerText = TextStyle(
-    fontFamily = FontFamily.Serif,
+    fontFamily = DisplayFamily,
     fontWeight = FontWeight.Bold,
     fontSize = 40.sp,
-    letterSpacing = 6.sp,
+    letterSpacing = 8.sp,
     color = GoldLight,
     shadow = DeepShadow,
 )
+
+val BodyText = TextStyle(
+    fontFamily = FontFamily.SansSerif,
+    fontSize = 12.sp,
+    color = ParchmentDim,
+)
+
+/** Power text colour follows the live game: green above base, red below, parchment at base. */
+fun powerColor(current: Int, base: Int): Color = when {
+    current > base -> BoostGreen
+    current < base -> DamageRed
+    else -> Parchment
+}
 
 @Composable
 fun GwentTheme(content: @Composable () -> Unit) {
     val colorScheme = darkColorScheme(
         primary = GoldText,
         onPrimary = Ink,
-        secondary = HeroGold,
+        secondary = GoldBright,
         background = BoardDeep,
         surface = PanelBackground,
-        onBackground = Color(0xFFE9EDF4),
-        onSurface = Color(0xFFE9EDF4),
-        outline = Color(0xFF3A4454),
+        onBackground = Parchment,
+        onSurface = Parchment,
+        outline = GoldDeep,
+        error = DamageRed,
     )
     MaterialTheme(colorScheme = colorScheme, content = content)
 }

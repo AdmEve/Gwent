@@ -3,118 +3,92 @@ package ir.gwent.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import ir.gwent.android.ui.BoardScreen
-import ir.gwent.android.ui.CarvedButton
-import ir.gwent.android.ui.DangerRed
 import ir.gwent.android.ui.FactionPickerScreen
 import ir.gwent.android.ui.GwentTheme
-import ir.gwent.android.ui.tableSurface
-import ir.gwent.android.ui.MutedText
-import ir.gwent.android.ui.SectionTitle
-import ir.gwent.core.model.Faction
+import ir.gwent.android.ui.MulliganScreen
+import ir.gwent.core.ai.SimpleAi
+import ir.gwent.core.engine.GameEngine
+import ir.gwent.core.model.CardDatabase
+import ir.gwent.core.model.Leader
+import ir.gwent.core.model.Side
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             GwentTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    AppRoot()
-                }
+                Surface(modifier = Modifier.fillMaxSize()) { AppRoot() }
             }
         }
     }
 }
 
-private sealed class Screen {
-    data object Pick : Screen()
-    data class Match(val playerFaction: Faction, val aiFaction: Faction) : Screen()
-}
+private enum class Phase { PICK, MULLIGAN, BOARD }
 
 @Composable
-private fun AppRoot() {
-    val context = LocalContext.current
-    var crash by remember { mutableStateOf(GwentApp.lastCrash(context)) }
+fun AppRoot() {
+    var phase by remember { mutableStateOf(Phase.PICK) }
+    var engine by remember { mutableStateOf<GameEngine?>(null) }
+    var opponent by remember { mutableStateOf<SimpleAi?>(null) }
+    // The engine mutates in place, so the board needs an explicit nudge to recompose.
+    var revision by remember { mutableIntStateOf(0) }
 
-    val pendingCrash = crash
-    if (pendingCrash != null) {
-        CrashScreen(
-            trace = pendingCrash,
-            trail = GwentApp.trail(context),
-            onDismiss = {
-                GwentApp.clearLastCrash(context)
-                crash = null
-            },
-        )
-        return
-    }
-
-    var screen by remember { mutableStateOf<Screen>(Screen.Pick) }
-    when (val current = screen) {
-        is Screen.Pick -> FactionPickerScreen(onStart = { player, ai -> screen = Screen.Match(player, ai) })
-        is Screen.Match -> BoardScreen(
-            playerFaction = current.playerFaction,
-            aiFaction = current.aiFaction,
-            onExit = { screen = Screen.Pick },
-        )
-    }
-}
-
-/** Shown once after a crash so the failure can actually be read and reported. */
-@Composable
-private fun CrashScreen(trace: String, trail: String, onDismiss: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .tableSurface()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-    ) {
-        Text("THE APP CRASHED LAST TIME", style = SectionTitle, color = DangerRed)
-        Text(
-            "Send this text to the developer, then continue.",
-            color = MutedText,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
-        )
-        CarvedButton(text = "CONTINUE", primary = true, onClick = onDismiss, modifier = Modifier.fillMaxWidth())
-
-        if (trail.isNotBlank()) {
-            Text("WHAT HAPPENED JUST BEFORE", style = SectionTitle, modifier = Modifier.padding(top = 16.dp))
-            Text(
-                text = trail,
-                color = MutedText,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(top = 4.dp),
+    when (phase) {
+        Phase.PICK -> FactionPickerScreen { mine: Leader, theirs: Leader ->
+            val e = GameEngine.start(
+                CardDatabase.starterDeck(mine),
+                CardDatabase.starterDeck(theirs),
             )
+            val ai = SimpleAi(Side.B)
+            ai.mulligan(e)
+            engine = e
+            opponent = ai
+            phase = Phase.MULLIGAN
         }
 
-        Text("STACK TRACE", style = SectionTitle, modifier = Modifier.padding(top = 16.dp))
-        Text(
-            text = trace,
-            color = MutedText,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 10.sp,
-            modifier = Modifier.padding(top = 4.dp),
-        )
+        Phase.MULLIGAN -> engine?.let { e ->
+            MulliganScreen(e) {
+                phase = Phase.BOARD
+                // If the opponent won the coin flip, let them open before handing over control.
+                runOpponent(e, opponent)
+                revision++
+            }
+        }
+
+        Phase.BOARD -> engine?.let { e ->
+            BoardScreen(
+                engine = e,
+                revision = revision,
+                onExit = {
+                    engine = null
+                    opponent = null
+                    phase = Phase.PICK
+                },
+            )
+            // After every player action, let the AI take its turns until control returns.
+            LaunchedEffect(revision, e.state.turn, e.state.matchOver) {
+                if (runOpponent(e, opponent)) revision++
+            }
+        }
     }
+}
+
+/** Runs the AI while it is its turn. Returns true if anything happened. */
+private fun runOpponent(engine: GameEngine, ai: SimpleAi?): Boolean {
+    if (ai == null) return false
+    var acted = false
+    var guard = 0
+    while (!engine.state.matchOver && engine.state.turn == Side.B && guard++ < 50) {
+        val before = engine.state.turn
+        ai.takeTurn(engine)
+        acted = true
+        // takeTurn can leave the turn with B when A has already passed; break rather than spin.
+        if (engine.state.turn == before && engine.state.player(Side.B).passed) break
+    }
+    return acted
 }

@@ -3,151 +3,121 @@ package ir.gwent.android.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.gwent.core.model.CardDatabase
-import ir.gwent.core.model.Faction
+import ir.gwent.core.model.Leader
+import ir.gwent.core.model.Leaders
 
+/**
+ * Leader selection. In GWENT the leader *is* the deck choice — it fixes the faction and sets the
+ * provision budget — so the picker shows the provision trade-off rather than just a faction name.
+ */
 @Composable
-fun FactionPickerScreen(onStart: (playerFaction: Faction, aiFaction: Faction) -> Unit) {
-    var playerFaction by remember { mutableStateOf<Faction?>(null) }
-    var aiFaction by remember { mutableStateOf<Faction?>(null) }
+fun FactionPickerScreen(onStart: (Leader, Leader) -> Unit) {
+    var mine by remember { mutableStateOf<Leader?>(null) }
+    var theirs by remember { mutableStateOf<Leader?>(null) }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .tableSurface(),
+            .background(Brush.verticalGradient(listOf(BoardDeep, BoardMid, BoardDeep)))
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 22.dp),
-        ) {
-            Text("GWENT-VERSE", style = DisplayTitle)
-            OrnateDivider(modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
-            Text(
-                "Three rows. Three rounds. Spend your hand wisely.",
-                color = MutedText,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Serif,
-            )
+        Text("GWENT", style = DisplayTitle)
+        Text(
+            "Two rows. Three rounds. One hand to spend across all of them.",
+            style = BodyText.copy(color = MutedText),
+            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+        )
 
-            Text("YOUR ARMY", style = SectionTitle, modifier = Modifier.padding(top = 22.dp, bottom = 8.dp))
-            Faction.entries.forEach { faction ->
-                FactionBanner(
-                    faction = faction,
-                    selected = playerFaction == faction,
-                    onClick = { playerFaction = faction },
-                )
-            }
-
-            Text("OPPOSING ARMY", style = SectionTitle, modifier = Modifier.padding(top = 22.dp, bottom = 8.dp))
-            Faction.entries.forEach { faction ->
-                FactionBanner(
-                    faction = faction,
-                    selected = aiFaction == faction,
-                    onClick = { aiFaction = faction },
-                )
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-            CarvedButton(
-                text = "TO BATTLE",
-                primary = true,
-                enabled = playerFaction != null && aiFaction != null,
-                onClick = { onStart(playerFaction!!, aiFaction!!) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(modifier = Modifier.height(24.dp))
+        Text("YOUR LEADER", style = SectionTitle)
+        Spacer(Modifier.height(6.dp))
+        Leaders.ALL.forEach { leader ->
+            LeaderRow(leader, selected = mine == leader) { mine = leader }
         }
+
+        Spacer(Modifier.height(16.dp))
+        Text("OPPONENT", style = SectionTitle)
+        Spacer(Modifier.height(6.dp))
+        Leaders.ALL.forEach { leader ->
+            LeaderRow(leader, selected = theirs == leader, tagPrefix = "opp") { theirs = leader }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        val ready = mine != null && theirs != null
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (ready) Color(0xFF2A2210) else Color(0xFF15130D))
+                .border(1.dp, if (ready) GoldBright else Color(0xFF2A2519), RoundedCornerShape(4.dp))
+                .then(if (ready) Modifier.clickable { onStart(mine!!, theirs!!) } else Modifier)
+                .testTag("start-match"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("BEGIN", style = SectionTitle.copy(color = if (ready) GoldLight else MutedText))
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun FactionBanner(faction: Faction, selected: Boolean, onClick: () -> Unit) {
-    val palette = factionPalette(faction)
-    val shape = RoundedCornerShape(8.dp)
-    val heroes = remember(faction) { CardDatabase.deckFor(faction).count { it.isHero } }
-    val cards = remember(faction) { CardDatabase.deckFor(faction).size }
-
-    Box(
+private fun LeaderRow(
+    leader: Leader,
+    selected: Boolean,
+    tagPrefix: String = "me",
+    onClick: () -> Unit,
+) {
+    val palette = factionPalette(leader.faction)
+    val deck = remember(leader) { CardDatabase.starterDeck(leader) }
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .shadow(if (selected) 10.dp else 2.dp, shape, ambientColor = palette.accent, spotColor = palette.accent)
-            .clip(shape)
+            .padding(vertical = 3.dp)
+            .clip(RoundedCornerShape(4.dp))
             .background(
                 Brush.horizontalGradient(
-                    listOf(palette.deep, PanelBackground, Color(0xFF12161E))
-                )
+                    listOf(palette.accent.copy(alpha = if (selected) 0.45f else 0.16f), Color.Transparent),
+                ),
             )
-            .border(if (selected) 2.dp else 1.dp, if (selected) MetalGold else MetalSilver, shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) GoldBright else Color(0xFF2A2519),
+                shape = RoundedCornerShape(4.dp),
+            )
+            .clickable { onClick() }
+            .padding(10.dp)
+            .testTag("$tagPrefix-${leader.id}"),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // Faction sigil: glowing disc with the initial struck into it.
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(palette.accent, palette.deep)))
-                    .border(1.5.dp, if (selected) MetalGold else MetalSilver, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = factionLabel(faction).first().toString(),
-                    color = Color(0xFF0D1015),
-                    fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 19.sp,
-                )
-            }
-            Spacer(modifier = Modifier.size(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = factionLabel(faction),
-                    color = if (selected) GoldLight else Color(0xFFD7DEE9),
-                    fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    letterSpacing = 1.sp,
-                )
-                Text(factionMotto(faction), color = MutedText, fontSize = 11.sp)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("$cards cards", color = MutedText, fontSize = 10.sp)
-                Text("$heroes heroes", color = palette.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
+        Column(Modifier.weight(1f)) {
+            Text(leader.name, style = SectionTitle.copy(fontSize = 15.sp, color = GoldLight))
+            Text(factionLabel(leader.faction), style = BodyText.copy(fontSize = 11.sp))
+            Text(leader.text, style = BodyText.copy(fontSize = 10.sp, color = MutedText))
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            // The trade-off that defines deck-building: ability strength against provisions.
+            Text("+${leader.provisionBonus}", style = ScoreNumeral.copy(fontSize = 16.sp, color = GoldMuted))
+            Text("provisions", style = BodyText.copy(fontSize = 8.sp, color = MutedText))
+            Text(
+                "${deck.provisionsSpent}/${deck.provisionLimit}",
+                style = BodyText.copy(fontSize = 9.sp, color = MutedText),
+            )
         }
     }
 }

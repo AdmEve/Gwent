@@ -6,13 +6,9 @@ import android.graphics.Color as AndroidColor
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
-import ir.gwent.core.model.Faction
+import ir.gwent.core.engine.GameEngine
+import ir.gwent.core.model.*
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -21,18 +17,18 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import kotlin.random.Random
 
 /**
- * Renders the real screens to PNG files so the UI can be reviewed without installing the APK
- * on a phone every time. Robolectric's native graphics backend rasterises the same Compose
- * drawing code the device runs, so what lands in build/screenshots is the actual shipped UI,
- * not a mock-up.
+ * Renders the real screens to PNG so the UI can be reviewed without installing the APK.
+ * Robolectric's native graphics backend rasterises the same Compose drawing code a device runs,
+ * so what lands in build/screenshots is the shipped UI rather than a mock-up.
  *
- * Output: PNGs under android/build/screenshots, picked up by CI and attached to the release.
+ * The board is rendered in landscape, which is how GWENT is laid out.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [33], qualifiers = "w411dp-h891dp-xxhdpi")
+@Config(sdk = [33], qualifiers = "w891dp-h411dp-xxhdpi")
 class ScreenshotTest {
 
     @get:Rule
@@ -45,7 +41,6 @@ class ScreenshotTest {
         compose.waitForIdle()
     }
 
-    /** Lays the content out at full screen size and draws it into a bitmap. */
     private fun shoot(name: String) {
         compose.waitForIdle()
         val root: View = compose.activity.findViewById(android.R.id.content)
@@ -76,76 +71,93 @@ class ScreenshotTest {
         println("wrote ${file.absolutePath} (${file.length()} bytes)")
     }
 
-    private fun exists(text: String): Boolean =
-        compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+    private fun engine(): GameEngine = GameEngine.start(
+        CardDatabase.starterDeck(Leaders.FOLTEST),
+        CardDatabase.starterDeck(Leaders.EREDIN),
+        Random(4),
+    )
 
+    private fun place(e: GameEngine, p: PlayerState, row: Row, id: String, apply: (UnitInstance) -> Unit = {}) {
+        val card = CardDatabase.byId(id) ?: return
+        val unit = UnitInstance(card, e.state.allocateUid())
+        apply(unit)
+        p.rows.getValue(row) += unit
+    }
+
+    @Test
+    fun `01 leader picker`() {
+        show { FactionPickerScreen { _, _ -> } }
+        shoot("01-leader-picker")
+    }
+
+    @Test
+    fun `02 mulligan`() {
+        val e = engine()
+        show { MulliganScreen(e) {} }
+        shoot("02-mulligan")
+    }
+
+    @Test
+    fun `03 board opening`() {
+        val e = engine()
+        e.state.turn = Side.A
+        show { BoardScreen(e) }
+        shoot("03-board-opening")
+    }
 
     /**
-     * Taps a card in the fanned hand. The hand has no stable text to match on — the deck is
-     * shuffled — so it is found by position: a clickable node sitting in the bottom band of
-     * the screen, which is where the hand lives and nothing else does.
+     * A mid-game position chosen to exercise the readouts that matter: a boosted unit (green),
+     * a damaged one (red), armour, and a spread of statuses.
      */
-    private fun tapAHandCard() {
-        val screenHeight = compose.activity.resources.displayMetrics.heightPixels.toFloat()
-        val clickable = compose.onAllNodes(hasClickAction())
-        val nodes = clickable.fetchSemanticsNodes()
-        val index = nodes.indices.lastOrNull { nodes[it].boundsInRoot.top > screenHeight * 0.80f }
-            ?: return
-        runCatching { clickable[index].performClick() }
+    @Test
+    fun `04 board in play`() {
+        val e = engine()
+        val me = e.state.playerA
+        val them = e.state.playerB
+
+        place(e, me, Row.MELEE, "nor_knight") { it.power = 9 }                  // boosted -> green
+        place(e, me, Row.MELEE, "nor_infantry")
+        place(e, me, Row.MELEE, "neu_shieldbearer") { it.apply(Status.SHIELD) }
+        place(e, me, Row.RANGED, "nor_ballista")
+        place(e, me, Row.RANGED, "neu_archer") { it.apply(Status.VITALITY, 3) }
+        place(e, me, Row.RANGED, "nor_vernon") { it.apply(Status.RESILIENCE) }
+
+        place(e, them, Row.MELEE, "mon_werewolf") { it.power = 3 }              // damaged -> red
+        place(e, them, Row.MELEE, "mon_ghoul") { it.apply(Status.BLEEDING, 2) }
+        place(e, them, Row.MELEE, "mon_arachas")
+        place(e, them, Row.RANGED, "mon_vampire") { it.apply(Status.POISON) }
+        place(e, them, Row.RANGED, "mon_harpy") { it.apply(Status.LOCKED) }
+
+        e.state.rowEffects += RowEffect(Side.B, Row.RANGED, RowEffectKind.FROST)
+        e.state.turn = Side.A
+        e.state.round = 2
+        me.crowns = 1
+
+        show { BoardScreen(e) }
+        shoot("04-board-in-play")
     }
 
     @Test
-    fun `01 faction picker`() {
-        show { FactionPickerScreen { _, _ -> } }
-        shoot("01-faction-picker")
-
-        // And again with both armies chosen, so the selected state is visible too.
-        runCatching { compose.onAllNodesWithText("Marvel")[0].performScrollTo().performClick() }
-        runCatching { compose.onAllNodesWithText("Greek Myth")[1].performScrollTo().performClick() }
-        runCatching { compose.onNodeWithText("YOUR ARMY").performScrollTo() }
-        shoot("02-faction-picker-chosen")
+    fun `05 full row`() {
+        val e = engine()
+        val me = e.state.playerA
+        // Nine units is the row cap; render it so the layout is checked at its limit.
+        repeat(ROW_CAPACITY) { place(e, me, Row.MELEE, "nor_infantry") }
+        place(e, e.state.playerB, Row.MELEE, "mon_ghoul")
+        e.state.turn = Side.A
+        show { BoardScreen(e) }
+        shoot("05-full-row")
     }
 
     @Test
-    fun `03 opening hand`() {
-        show { BoardScreen(playerFaction = Faction.MARVEL, aiFaction = Faction.GREEK_MYTH) {} }
-        compose.onNodeWithText("OPENING HAND").assertExists()
-        shoot("03-opening-hand")
-    }
-
-    @Test
-    fun `04 the board`() {
-        show { BoardScreen(playerFaction = Faction.PAHLAVAN, aiFaction = Faction.DIV) {} }
-        compose.onNodeWithText("BEGIN THE MATCH").performClick()
-        compose.waitForIdle()
-        shoot("04-board-opening")
-    }
-
-    @Test
-    fun `05 the board once cards are down`() {
-        show { BoardScreen(playerFaction = Faction.ONE_PIECE, aiFaction = Faction.MARVEL) {} }
-        compose.onNodeWithText("BEGIN THE MATCH").performClick()
-        compose.waitForIdle()
-
-        // Play out a few cards so the rows are populated and the totals mean something.
-        repeat(4) {
-            tapAHandCard()
-            compose.waitForIdle()
-        }
-        shoot("05-board-in-play")
-    }
-
-    @Test
-    fun `06 the result`() {
-        show { BoardScreen(playerFaction = Faction.DIV, aiFaction = Faction.PAHLAVAN) {} }
-        compose.onNodeWithText("BEGIN THE MATCH").performClick()
-        compose.waitForIdle()
-        repeat(10) {
-            if (exists("PASS")) {
-                runCatching { compose.onNodeWithText("PASS").performClick() }
-                compose.waitForIdle()
-            }
-        }
-        shoot("06-result")
+    fun `06 match over`() {
+        val e = engine()
+        e.state.matchOver = true
+        e.state.matchWinner = Side.A
+        e.state.playerA.crowns = 2
+        e.state.playerB.crowns = 1
+        place(e, e.state.playerA, Row.MELEE, "nor_vernon")
+        show { BoardScreen(e) }
+        shoot("06-match-over")
     }
 }
