@@ -83,6 +83,8 @@ object CardDatabase {
         unit("neu_witcher", "Path Witcher", Faction.NEUTRAL, 6, 8, tags = setOf(Tag.WITCHER),
             abilities = listOf(Ability(Trigger.DEPLOY, Effect.Damage(4)))),
         unit("neu_roach", "Roach", Faction.NEUTRAL, 5, 5, tags = setOf(Tag.BEAST)),
+        special("neu_clear", "Clear Skies", Faction.NEUTRAL, 5, tags = setOf(Tag.SPELL),
+            effect = Effect.ClearWeather, text = "Clear all weather from your side."),
     )
 
     // ------------------------------------------------------------- factions
@@ -120,8 +122,12 @@ object CardDatabase {
             text = "At the end of your turn, Consume a corpse."),
         unit("mon_fiend", "Fiend", Faction.MONSTERS, 9, 11, color = CardColor.GOLD, armor = 2,
             tags = setOf(Tag.RELICT), text = "A wall of horn and muscle."),
-        special("mon_frost", "Biting Frost", Faction.MONSTERS, 6, tags = setOf(Tag.SPELL),
-            effect = Effect.Damage(2), text = "Damage the highest enemy unit by 2."),
+        special("mon_frost", "Biting Frost", Faction.MONSTERS, 6, tags = setOf(Tag.SPELL, Tag.HAZARD),
+            effect = Effect.Weather(RowEffectKind.FROST),
+            text = "Apply Frost to an enemy row: damages its highest unit by 2 each turn."),
+        special("mon_fog", "Impenetrable Fog", Faction.MONSTERS, 6, tags = setOf(Tag.SPELL, Tag.HAZARD),
+            effect = Effect.Weather(RowEffectKind.FOG),
+            text = "Apply Fog to an enemy row: damages its lowest unit by 2 each turn."),
     )
 
     val NILFGAARD = listOf(
@@ -234,6 +240,9 @@ object CardDatabase {
             abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.RESILIENCE)))),
         special("sco_trap", "Mahakam Ale", Faction.SCOIATAEL, 5, tags = setOf(Tag.ALCHEMY),
             effect = Effect.Boost(5), text = "Boost an allied unit by 5."),
+        special("sco_rain", "Torrential Rain", Faction.SCOIATAEL, 6, tags = setOf(Tag.SPELL, Tag.HAZARD),
+            effect = Effect.Weather(RowEffectKind.RAIN),
+            text = "Apply Rain to an enemy row: damages 2 random units on it by 1 each turn."),
     )
 
     val SKELLIGE = listOf(
@@ -267,6 +276,9 @@ object CardDatabase {
             abilities = listOf(Ability(Trigger.DEPLOY, Effect.Apply(Status.VITALITY, 4)))),
         special("ske_ale", "Ale of the Ancestors", Faction.SKELLIGE, 5, tags = setOf(Tag.ALCHEMY),
             effect = Effect.Resurrect, text = "Resurrect your strongest fallen unit."),
+        special("ske_storm", "Skellige Storm", Faction.SKELLIGE, 7, tags = setOf(Tag.SPELL, Tag.HAZARD),
+            effect = Effect.Weather(RowEffectKind.STORM),
+            text = "Apply Storm to an enemy row: damages every unit on it by 1 each turn."),
     )
 
     val SYNDICATE = listOf(

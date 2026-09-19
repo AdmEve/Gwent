@@ -49,7 +49,7 @@ enum class Tag {
     DRACONID, NECROPHAGE, OGROID, RELICT, CURSED, WITCHER, MAGE, PIRATE, SOLDIER,
     KNIGHT, ARISTOCRAT, BANDIT, DRUID, TREANT, MACHINE, SIEGE_ENGINE, LEADER_TAG,
     // special-card kinds
-    TACTIC, SPELL, WARFARE, ALCHEMY, ORGANIC, CRIME, NATURE, ITEM,
+    TACTIC, SPELL, WARFARE, ALCHEMY, ORGANIC, CRIME, NATURE, ITEM, HAZARD,
 }
 
 /** What kind of card this is, which decides where it goes and whether it scores. */
@@ -161,6 +161,15 @@ sealed interface Effect {
 
     /** Move a unit to the other row on its own side. */
     data object Move : Effect
+
+    /**
+     * Lay weather or a hazard on an enemy row. The row is the target's if one is given,
+     * otherwise the enemy row holding the most units, which is where it hurts most.
+     */
+    data class Weather(val kind: RowEffectKind) : Effect
+
+    /** Clear every row effect from your own side. */
+    data object ClearWeather : Effect
 
     /** Draw cards from the top of the deck. */
     data class Draw(val count: Int) : Effect

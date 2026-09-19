@@ -230,6 +230,8 @@ class GameEngine(val state: GameState) {
             Effect.Consume -> consume(actor, target, self)
             Effect.Resurrect -> resurrect(actor, rowOf(self) ?: Row.MELEE)
             Effect.Move -> target?.let { moveToOtherRow(it) }
+            is Effect.Weather -> layWeather(actor, effect.kind, target)
+            Effect.ClearWeather -> state.rowEffects.removeAll { it.side == actor.side }
             is Effect.Draw -> repeat(effect.count) { drawOne(actor) }
             is Effect.Profit -> actor.addCoins(effect.amount)
             Effect.None -> Unit
@@ -283,6 +285,19 @@ class GameEngine(val state: GameState) {
         val best = player.graveyard.filter { it.isUnit }.maxByOrNull { it.basePower } ?: return
         player.graveyard.remove(best)
         place(player, best, row)
+    }
+
+    /**
+     * Put weather on an enemy row: the target's row when one was chosen, otherwise whichever
+     * enemy row is most crowded. Only one effect sits on a row at a time, so it replaces.
+     */
+    private fun layWeather(actor: PlayerState, kind: RowEffectKind, target: UnitInstance?) {
+        val enemy = state.opponent(actor.side)
+        val row = target?.let { t -> enemy.rows.entries.firstOrNull { it.value.contains(t) }?.key }
+            ?: enemy.rows.maxByOrNull { it.value.size }?.key
+            ?: Row.MELEE
+        state.rowEffects.removeAll { it.side == enemy.side && it.row == row }
+        state.rowEffects += RowEffect(enemy.side, row, kind)
     }
 
     private fun moveToOtherRow(unit: UnitInstance) {

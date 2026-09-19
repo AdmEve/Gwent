@@ -125,12 +125,29 @@ class TacticalAi(private val side: Side) : Ai {
                 is Effect.Summon -> CardDatabase.byId(e.cardId)?.basePower ?: 0
                 is Effect.Apply -> statusValue(e.status, enemies, allies)
                 is Effect.Profit -> if (me.faction == Faction.SYNDICATE) e.amount / 2 else 0
+                // Weather pays out every turn it survives, so its worth is the damage it will
+                // do on the crowded row, multiplied by the turns likely left in the round.
+                is Effect.Weather -> weatherValue(e.kind, them)
+                Effect.ClearWeather ->
+                    if (engine.state.rowEffects.any { it.side == side }) 6 else 0
                 else -> 0
             }
         }
         // An Order that survives is worth more than its printed body, since it pays again later.
         if (card.abilities.any { it.trigger == Trigger.ORDER }) value += 3
         return value
+    }
+
+    /** What weather is worth: per-tick damage on the busiest enemy row, over a few turns. */
+    private fun weatherValue(kind: RowEffectKind, them: PlayerState): Int {
+        val busiest = them.rows.values.maxByOrNull { it.size } ?: return 0
+        if (busiest.isEmpty()) return 0
+        val perTurn = when (kind) {
+            RowEffectKind.STORM -> busiest.size          // hits everything
+            RowEffectKind.RAIN -> minOf(2, busiest.size) // two random units
+            RowEffectKind.FOG, RowEffectKind.FROST -> 2  // one unit, for 2
+        }
+        return perTurn * 2
     }
 
     private fun statusValue(
@@ -161,7 +178,10 @@ class TacticalAi(private val side: Side) : Ai {
                 (it.effect as? Effect.Apply)?.status in setOf(Status.POISON, Status.BLEEDING, Status.LOCKED)
         }
         val consuming = card.abilities.any { it.effect == Effect.Consume }
+        val weathering = card.abilities.any { it.effect is Effect.Weather }
         return when {
+            // Point weather at the busiest enemy row by naming a unit standing on it.
+            weathering -> them.rows.values.maxByOrNull { it.size }?.firstOrNull()?.uid
             // Eat the weakest ally: the points transfer, so spend the cheapest body.
             consuming -> me.units().minByOrNull { it.power }?.uid
             harmful -> them.units().filterNot { it.has(Status.IMMUNITY) }.maxByOrNull { it.power }?.uid
