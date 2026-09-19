@@ -125,14 +125,14 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
 
     // The path carries both melee rows and the centre line between them; grass takes the two
     // ranged rows and the hand. Both edges are read off the measured board rather than guessed.
-    private val pathNearT = depthAtY(GwentBoard.HAND_TOP - 0.055f)
-    private val pathFarT = depthAtY(GwentBoard.FIELD_TOP + 0.045f)
+    private val pathNearT = depthAtY(GwentBoard.CENTRE_LINE + 0.150f)
+    private val pathFarT = depthAtY(GwentBoard.CENTRE_LINE - 0.115f)
 
     private fun wobble(u: Float, freq: Float, phase: Float) =
         sin(u * freq + phase) * 0.62f + sin(u * freq * 2.7f + phase * 1.9f) * 0.38f
 
-    private fun pathNear(u: Float) = pathNearT + wobble(u, 5.7f, 1.7f) * 0.022f
-    private fun pathFar(u: Float) = pathFarT + wobble(u, 4.9f, 4.2f) * 0.026f
+    private fun pathNear(u: Float) = pathNearT + wobble(u, 5.7f, 1.7f) * 0.030f
+    private fun pathFar(u: Float) = pathFarT + wobble(u, 4.9f, 4.2f) * 0.034f
 
     init {
         val rnd = Random(seed)
@@ -158,7 +158,7 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
 
         // --- moss, either side of the path --------------------------------------
         val mosses = listOf(Ground.mossDeep, Ground.mossMid, Ground.mossLit)
-        repeat(54) {
+        repeat(90) {
             val uu = u(rnd)
             val t = if (rnd.nextBoolean()) {
                 rnd.nextFloat() * pathNear(uu)
@@ -220,8 +220,8 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
                     val rx = hwScreen * (0.66f + rnd.nextFloat() * 0.52f)
                     val ry = hhScreen * (0.62f + rnd.nextFloat() * 0.56f)
                     cobbles += Cobble(
-                        path = blob(cx, cy, rx, ry, 6 + rnd.nextInt(4), 0.42f, rnd),
-                        shadow = blob(cx, cy + ry * 0.30f, rx * 1.02f, ry * 0.92f, 7, 0.40f, rnd),
+                        path = blob(cx, cy, rx, ry, 11 + rnd.nextInt(4), 0.20f, rnd),
+                        shadow = blob(cx, cy + ry * 0.30f, rx * 1.02f, ry * 0.92f, 11, 0.20f, rnd),
                         cy = cy,
                         hh = ry,
                         lit = hazed((if (warm) Ground.dust else Ground.stoneLit).shade(tone), ct),
@@ -243,7 +243,7 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
             val ry = rx * (0.56f + rnd.nextFloat() * 0.34f)
             val tone = 0.72f + rnd.nextFloat() * 0.54f
             rocks += Rock(
-                body = blob(c.x, c.y, rx, ry, 9, 0.32f, rnd),
+                body = blob(c.x, c.y, rx, ry, 13, 0.20f, rnd),
                 facet = blob(c.x - rx * 0.24f, c.y - ry * 0.28f, rx * 0.50f, ry * 0.44f, 7, 0.36f, rnd),
                 c = c, rx = rx, ry = ry,
                 lit = hazed(Ground.stoneLit.shade(tone), tt),
@@ -268,20 +268,20 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
         // wash with cartoon objects sitting on it — which is exactly how the first attempt came
         // out. These go over the stones as well as the soil, so nothing stays perfectly smooth.
         val grains = listOf(Ground.soilBlack, Ground.soilNear, Ground.clay, Ground.dust, Ground.stoneDark, Ground.mossDeep)
-        repeat(1800) {
+        repeat(1500) {
             val tt = rnd.nextFloat()
             grain += Grain(
                 c = Offset(xAt(u(rnd), tt), yAt(tt)),
-                r = (h * (0.0012f + rnd.nextFloat() * 0.0042f) * scaleAt(tt)).coerceAtLeast(0.45f),
-                color = hazed(grains.random(rnd), tt).copy(alpha = (0.10f + rnd.nextFloat() * 0.26f) * hazeAlpha(tt)),
+                r = (h * (0.004f + rnd.nextFloat() * 0.022f) * scaleAt(tt)).coerceAtLeast(1.2f),
+                color = hazed(grains.random(rnd), tt).copy(alpha = (0.05f + rnd.nextFloat() * 0.13f) * hazeAlpha(tt)),
             )
         }
 
         // --- roots crossing the soil ------------------------------------------------
-        repeat(16) {
+        repeat(9) {
             val tt = rnd.nextFloat()
             val u0 = u(rnd)
-            val len = (uMax - uMin) * (0.08f + rnd.nextFloat() * 0.20f)
+            val len = (uMax - uMin) * (0.04f + rnd.nextFloat() * 0.09f)
             fun drift() = (rnd.nextFloat() - 0.5f) * 0.06f
             roots += Root(
                 path = Path().apply {
@@ -310,7 +310,7 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
         }
 
         // --- grass -------------------------------------------------------------------------
-        repeat(320) {
+        repeat(520) {
             val uu = u(rnd)
             val near = pathNear(uu)
             val far = pathFar(uu)
@@ -344,8 +344,8 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
             }
             // Held well back in value. Grass this far from the camera is a texture, and the
             // saturated green spikes of the first attempt read as a cartoon lawn.
-            tufts += Tuft(blades, mix(hazed(tone, tt), Ground.soilDeep, 0.34f)
-                .copy(alpha = (0.42f + rnd.nextFloat() * 0.26f) * hazeAlpha(tt)))
+            tufts += Tuft(blades, mix(hazed(tone, tt), Ground.soilDeep, 0.20f)
+                .copy(alpha = (0.58f + rnd.nextFloat() * 0.30f) * hazeAlpha(tt)))
         }
     }
 }
@@ -494,11 +494,16 @@ private fun DrawScope.drawGround(plan: GroundPlan) {
 
     // 7. gravel, then the grain that keeps every surface from reading as a flat fill
     plan.pebbles.forEach { p -> drawCircle(p.color, radius = p.r, center = p.c) }
-    plan.grain.forEach { g -> drawCircle(g.color, radius = g.r, center = g.c) }
+    plan.grain.forEach { g ->
+        drawCircle(
+            brush = Brush.radialGradient(0f to g.color, 1f to Color.Transparent, center = g.c, radius = g.r),
+            radius = g.r, center = g.c,
+        )
+    }
 
     // 8. roots crossing the ground
     plan.roots.forEach { r ->
-        drawPath(r.path, Ground.soilBlack.copy(alpha = 0.5f), style = Stroke(width = r.width * 1.7f))
+        drawPath(r.path, Ground.soilBlack.copy(alpha = 0.32f), style = Stroke(width = r.width * 1.7f))
         drawPath(r.path, r.color, style = Stroke(width = r.width))
     }
 
