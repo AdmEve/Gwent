@@ -67,10 +67,11 @@ object Ground {
 // --- scatter elements, already projected ------------------------------------
 
 private class Mottle(val c: Offset, val r: Float, val color: Color, val alpha: Float)
-private class Cobble(val path: Path, val cy: Float, val hh: Float, val lit: Color, val mid: Color, val dark: Color)
+private class Cobble(val path: Path, val shadow: Path, val cy: Float, val hh: Float, val lit: Color, val mid: Color, val dark: Color)
 private class Rock(val body: Path, val facet: Path, val c: Offset, val rx: Float, val ry: Float, val lit: Color, val mid: Color)
 private class Tuft(val blades: List<Path>, val color: Color)
 private class Pebble(val c: Offset, val r: Float, val color: Color)
+private class Grain(val c: Offset, val r: Float, val color: Color)
 private class Leaf(val path: Path, val color: Color)
 private class Root(val path: Path, val width: Float, val color: Color)
 
@@ -117,6 +118,7 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
     val rocks = ArrayList<Rock>()
     val tufts = ArrayList<Tuft>()
     val pebbles = ArrayList<Pebble>()
+    val grain = ArrayList<Grain>()
     val leaves = ArrayList<Leaf>()
     val roots = ArrayList<Root>()
     val pathBed: Path
@@ -194,8 +196,10 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
             var uu = uMin + stagger
             // A stone is as tall as the gap to the next band and as wide as the gap to its
             // neighbour, both already foreshortened by the projection.
-            val hhScreen = (yAt(t) - yAt(t + dt)) * 0.44f
-            val hwScreen = du * w * scaleAt(t) * 0.45f
+            // Sized to overlap their neighbours slightly, so the path is continuous stone with
+            // joints rather than islands with mud between them.
+            val hhScreen = (yAt(t) - yAt(t + dt)) * 0.72f
+            val hwScreen = du * w * scaleAt(t) * 0.66f
             while (uu < uMax) {
                 val cu = uu + (rnd.nextFloat() - 0.5f) * du * 0.30f
                 val ct = t + (rnd.nextFloat() - 0.5f) * dt * 0.32f
@@ -209,15 +213,20 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
                 if (keep && hhScreen > 0.6f) {
                     val cx = xAt(cu, ct)
                     val cy = yAt(ct)
-                    val tone = 0.70f + rnd.nextFloat() * 0.58f
+                    // A wide tonal spread is what stone actually looks like. The first attempt
+                    // used a narrow one and every stone came out the same grey.
+                    val tone = 0.48f + rnd.nextFloat() * 1.05f
+                    val warm = rnd.nextFloat() < 0.4f
+                    val rx = hwScreen * (0.66f + rnd.nextFloat() * 0.52f)
+                    val ry = hhScreen * (0.62f + rnd.nextFloat() * 0.56f)
                     cobbles += Cobble(
-                        path = blob(cx, cy, hwScreen * (0.80f + rnd.nextFloat() * 0.28f),
-                            hhScreen * (0.80f + rnd.nextFloat() * 0.30f), 7, 0.28f, rnd),
+                        path = blob(cx, cy, rx, ry, 6 + rnd.nextInt(4), 0.42f, rnd),
+                        shadow = blob(cx, cy + ry * 0.30f, rx * 1.02f, ry * 0.92f, 7, 0.40f, rnd),
                         cy = cy,
-                        hh = hhScreen,
-                        lit = hazed(Ground.stoneLit.shade(tone), ct),
-                        mid = hazed(Ground.stoneMid.shade(tone), ct),
-                        dark = hazed(Ground.stoneDark.shade(tone * 0.9f), ct),
+                        hh = ry,
+                        lit = hazed((if (warm) Ground.dust else Ground.stoneLit).shade(tone), ct),
+                        mid = hazed(Ground.stoneMid.shade(tone * 0.86f), ct),
+                        dark = hazed(Ground.stoneDark.shade(tone * 0.62f), ct),
                     )
                 }
                 uu += du
@@ -250,6 +259,21 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
                 r = (h * (0.0026f + rnd.nextFloat() * 0.0062f) * scaleAt(tt)).coerceAtLeast(0.5f),
                 color = hazed(Ground.stoneMid.shade(0.6f + rnd.nextFloat() * 0.8f), tt)
                     .copy(alpha = 0.55f * hazeAlpha(tt)),
+            )
+        }
+
+        // --- grain ----------------------------------------------------------------------
+        // Ground at this distance is not a collection of things you can name, it is texture.
+        // Without a field of small marks breaking the fill, every surface above reads as a flat
+        // wash with cartoon objects sitting on it — which is exactly how the first attempt came
+        // out. These go over the stones as well as the soil, so nothing stays perfectly smooth.
+        val grains = listOf(Ground.soilBlack, Ground.soilNear, Ground.clay, Ground.dust, Ground.stoneDark, Ground.mossDeep)
+        repeat(1800) {
+            val tt = rnd.nextFloat()
+            grain += Grain(
+                c = Offset(xAt(u(rnd), tt), yAt(tt)),
+                r = (h * (0.0012f + rnd.nextFloat() * 0.0042f) * scaleAt(tt)).coerceAtLeast(0.45f),
+                color = hazed(grains.random(rnd), tt).copy(alpha = (0.10f + rnd.nextFloat() * 0.26f) * hazeAlpha(tt)),
             )
         }
 
@@ -286,7 +310,7 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
         }
 
         // --- grass -------------------------------------------------------------------------
-        repeat(200) {
+        repeat(320) {
             val uu = u(rnd)
             val near = pathNear(uu)
             val far = pathFar(uu)
@@ -301,7 +325,7 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
 
             val cx = xAt(uu, tt)
             val cy = yAt(tt)
-            val clump = h * (0.020f + rnd.nextFloat() * 0.044f) * scaleAt(tt)
+            val clump = h * (0.011f + rnd.nextFloat() * 0.030f) * scaleAt(tt)
             val blades = ArrayList<Path>(7)
             repeat(3 + rnd.nextInt(4)) {
                 blades += bladePath(
@@ -318,7 +342,10 @@ private class GroundPlan(val w: Float, val h: Float, seed: Int) {
                 6, 7 -> Ground.mossLit
                 else -> Ground.grassLit
             }
-            tufts += Tuft(blades, hazed(tone, tt).copy(alpha = 0.82f * hazeAlpha(tt)))
+            // Held well back in value. Grass this far from the camera is a texture, and the
+            // saturated green spikes of the first attempt read as a cartoon lawn.
+            tufts += Tuft(blades, mix(hazed(tone, tt), Ground.soilDeep, 0.34f)
+                .copy(alpha = (0.42f + rnd.nextFloat() * 0.26f) * hazeAlpha(tt)))
         }
     }
 }
@@ -422,11 +449,11 @@ private fun DrawScope.drawGround(plan: GroundPlan) {
     drawRect(
         Brush.verticalGradient(
             0.00f to Ground.distance,
-            0.14f to Ground.soilDeep,
-            0.38f to Ground.soilMid,
-            0.62f to Ground.soilNear,
-            0.84f to Ground.soilMid,
-            1.00f to Ground.soilDeep,
+            0.12f to Ground.soilBlack,
+            0.30f to Ground.soilDeep,
+            0.52f to Ground.soilMid,
+            0.72f to Ground.soilDeep,
+            1.00f to Ground.soilBlack,
         ),
     )
 
@@ -440,13 +467,15 @@ private fun DrawScope.drawGround(plan: GroundPlan) {
     drawPath(plan.pathBed, Ground.soilBlack.copy(alpha = 0.55f))
 
     // 5. the cobbles, converging with the plane
+    // Each stone lays down the shadow in its own joint first, then covers most of it. There is
+    // deliberately no outline: a line drawn round every stone is what made the first attempt
+    // read as a cartoon rather than as paving.
     plan.cobbles.forEach { c ->
+        drawPath(c.shadow, Ground.soilBlack.copy(alpha = 0.30f))
         drawPath(
             c.path,
             Brush.verticalGradient(listOf(c.lit, c.mid, c.dark), startY = c.cy - c.hh, endY = c.cy + c.hh),
         )
-        // The mortar gap is the shadow between stones, and is what makes them read as separate.
-        drawPath(c.path, Ground.soilBlack.copy(alpha = 0.72f), style = Stroke(width = 1f))
     }
 
     // 6. loose rock, each sitting in its own shadow
@@ -461,11 +490,11 @@ private fun DrawScope.drawGround(plan: GroundPlan) {
             Brush.verticalGradient(listOf(r.lit, r.mid, Ground.stoneDark), startY = r.c.y - r.ry, endY = r.c.y + r.ry),
         )
         drawPath(r.facet, Ground.stonePale.copy(alpha = 0.16f))
-        drawPath(r.body, Ground.soilBlack.copy(alpha = 0.5f), style = Stroke(width = 1f))
     }
 
-    // 7. gravel
+    // 7. gravel, then the grain that keeps every surface from reading as a flat fill
     plan.pebbles.forEach { p -> drawCircle(p.color, radius = p.r, center = p.c) }
+    plan.grain.forEach { g -> drawCircle(g.color, radius = g.r, center = g.c) }
 
     // 8. roots crossing the ground
     plan.roots.forEach { r ->
@@ -500,18 +529,18 @@ private fun DrawScope.drawGround(plan: GroundPlan) {
     // 12. and the dark it falls away into
     drawRect(
         Brush.radialGradient(
-            0.50f to Color.Transparent,
-            1.00f to Color(0xDE060907),
+            0.34f to Color.Transparent,
+            1.00f to Color(0xF2040705),
             center = Offset(w * 0.5f, h * 0.46f),
-            radius = maxOf(w, h) * 0.74f,
+            radius = maxOf(w, h) * 0.66f,
         ),
     )
     drawRect(
         Brush.verticalGradient(
-            0.00f to Color(0xD1060A09),
-            0.16f to Color.Transparent,
-            0.88f to Color.Transparent,
-            1.00f to Color(0xB3060A09),
+            0.00f to Color(0xE8040706),
+            0.20f to Color.Transparent,
+            0.86f to Color.Transparent,
+            1.00f to Color(0xC4040706),
         ),
     )
 }
