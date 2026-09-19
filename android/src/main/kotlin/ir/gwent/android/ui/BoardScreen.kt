@@ -49,9 +49,11 @@ fun BoardScreen(
     val me = state.playerA
     val them = state.playerB
 
-    Box(modifier = Modifier.fillMaxSize().background(BoardGround)) {
-        // Vignette over the ground, so the light falls off toward the edges.
-        Box(Modifier.fillMaxSize().background(BoardVignette))
+    Box(modifier = Modifier.fillMaxSize().background(Ink)) {
+        // The board is a place, not a backdrop. Soil, a worn cobbled path, moss, loose rock and
+        // grass are drawn underneath everything else, so the cards are played on ground rather
+        // than on a ruled black screen.
+        BoardTerrain(Modifier.fillMaxSize())
 
         Row(modifier = Modifier.fillMaxSize()) {
             // ---- left rail: leaders and piles --------------------------------
@@ -90,13 +92,13 @@ fun BoardScreen(
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            mine = false, tag = "opp-ranged")
+                            tag = "opp-ranged")
                         BoardRow(them, Row.MELEE, engine, selectedHand, selectedTarget,
                             onTarget = { uid -> onUnitTapped(engine, them, uid, pendingOrder,
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            mine = false, tag = "opp-melee")
+                            tag = "opp-melee")
 
                         CentreLine(state)
 
@@ -105,7 +107,7 @@ fun BoardScreen(
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            mine = true, tag = "my-melee",
+                            tag = "my-melee",
                             onPlay = { r ->
                                 playSelected(engine, selectedHand, r, selectedTarget)
                                     .also { if (it) { selectedHand = null; selectedTarget = null } }
@@ -115,7 +117,7 @@ fun BoardScreen(
                                 fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
                                 inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
                                 select = { selectedTarget = it }) },
-                            mine = true, tag = "my-ranged",
+                            tag = "my-ranged",
                             onPlay = { r ->
                                 playSelected(engine, selectedHand, r, selectedTarget)
                                     .also { if (it) { selectedHand = null; selectedTarget = null } }
@@ -235,7 +237,6 @@ private fun ColumnScope.BoardRow(
     selectedHand: Int?,
     selectedTarget: Int?,
     onTarget: (Int?) -> Unit,
-    mine: Boolean,
     tag: String,
     onPlay: ((Row) -> Boolean)? = null,
 ) {
@@ -247,12 +248,18 @@ private fun ColumnScope.BoardRow(
         modifier = Modifier
             .fillMaxWidth()
             .weight(1f)
-            .clip(RoundedCornerShape(2.dp))
-            .background(if (canDrop) RowBandLit else rowBand(mine))
-            .border(
-                1.dp,
-                if (canDrop) GoldBright.copy(alpha = 0.8f) else Color(0x22FFFFFF),
-                RoundedCornerShape(2.dp),
+            // Deliberately no box. In GWENT a row is ground, and the ground runs unbroken from
+            // one row into the next — the cards and the row marker say where a row is, not a
+            // rule drawn round it. A row lights up only when the held card can be dropped on it.
+            .then(
+                if (canDrop) {
+                    Modifier
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(RowBandLit)
+                        .border(1.dp, GoldBright.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
+                } else {
+                    Modifier
+                },
             )
             .then(if (canDrop) Modifier.clickable { onPlay!!(row) } else Modifier)
             .testTag(tag),
@@ -280,7 +287,20 @@ private fun ColumnScope.BoardRow(
 @Composable
 private fun RowScoreShield(score: Int, row: Row, effect: RowEffectKind?) {
     Column(
-        modifier = Modifier.width(30.dp).fillMaxHeight(),
+        modifier = Modifier
+            .width(30.dp)
+            .padding(vertical = 4.dp, horizontal = 2.dp)
+            .clip(RoundedCornerShape(2.dp))
+            // A slab of stone set into the ground, the way the real board marks its rows —
+            // lit along the top edge, in shadow at the foot, and cut into the earth by a
+            // dark rim rather than floating on it.
+            .background(
+                Brush.verticalGradient(
+                    listOf(Ground.stoneMid, Ground.stoneDark, Ground.soilBlack),
+                ),
+            )
+            .border(1.dp, Ground.soilBlack.copy(alpha = 0.85f), RoundedCornerShape(2.dp))
+            .padding(vertical = 3.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

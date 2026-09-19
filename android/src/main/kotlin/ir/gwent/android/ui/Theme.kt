@@ -29,8 +29,6 @@ val Ink = Color(0xFF05070A)
 val BoardDeep = Color(0xFF0B0A06)
 val BoardMid = Color(0xFF1B160A)          // #1b160a, the site's dark ground
 val PanelBackground = Color(0xFF16130C)
-val RowSlot = Color(0xFF12100A)
-val RowSlotLit = Color(0xFF241D0F)
 
 // --- gold leaf --------------------------------------------------------------
 val GoldLight = Color(0xFFFADF7A)         // #fadf7a
@@ -62,12 +60,12 @@ fun frameBrush(color: CardColor): Brush = when (color) {
 
 // --- board surfaces ---------------------------------------------------------
 /*
- * The real game's board is a lit place — a forest floor or a stone path — with warm light in
- * the middle and darkness at the edges. Flat black reads as a debug screen, so the board is
- * built from layered gradients: a warm ground, a vignette, and banded terrain for the rows.
+ * The battlefield itself is painted by [BoardTerrain] — soil, cobbles, moss and grass, drawn
+ * shape by shape. What is left here is the plain warm ground the menu screens sit on, where a
+ * full forest floor would only fight the lists laid over it.
  */
 
-/** The battlefield ground: warm and lit through the centre, falling away at the edges. */
+/** A warm, lit ground for the screens that are not the battlefield. */
 val BoardGround = Brush.verticalGradient(
     0.00f to Color(0xFF0A0906),
     0.18f to Color(0xFF17130B),
@@ -76,23 +74,14 @@ val BoardGround = Brush.verticalGradient(
     1.00f to Color(0xFF0A0906),
 )
 
-/** Darkens the corners so the eye is pulled to the centre of the board. */
-val BoardVignette = Brush.radialGradient(
-    0.0f to Color.Transparent,
-    0.55f to Color(0x00000000),
-    1.0f to Color(0xCC000000),
-)
-
-/** A row of terrain. The player's own rows sit slightly warmer than the opponent's. */
-fun rowBand(mine: Boolean): Brush = if (mine) {
-    Brush.verticalGradient(listOf(Color(0xFF241C10), Color(0xFF1A150C), Color(0xFF241C10)))
-} else {
-    Brush.verticalGradient(listOf(Color(0xFF1E1810), Color(0xFF15110A), Color(0xFF1E1810)))
-}
-
-/** A row lit up because the selected card can be dropped on it. */
+/**
+ * A row lit up because the selected card can be dropped on it.
+ *
+ * Translucent, because there is real ground underneath now: this has to read as light falling
+ * on the earth of that row, not as a panel laid over it.
+ */
 val RowBandLit = Brush.verticalGradient(
-    listOf(Color(0xFF3A2E14), Color(0xFF2A2110), Color(0xFF3A2E14)),
+    listOf(Color(0x3DFFD75A), Color(0x1FFFC107), Color(0x3DFFD75A)),
 )
 
 /** Stand-in for card art: a lit figure-ground in the faction's colour. */

@@ -6,6 +6,7 @@ import android.graphics.Color as AndroidColor
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import ir.gwent.core.engine.GameEngine
 import ir.gwent.core.model.*
@@ -82,6 +83,16 @@ class ScreenshotTest {
         val unit = UnitInstance(card, e.state.allocateUid())
         apply(unit)
         p.rows.getValue(row) += unit
+    }
+
+    /**
+     * The bare ground, with nothing standing on it. Rendered on its own because a board full of
+     * cards hides most of the terrain, and the terrain is the thing being reviewed.
+     */
+    @Test
+    fun `00 terrain`() {
+        show { BoardTerrain(androidx.compose.ui.Modifier.fillMaxSize()) }
+        shoot("00-terrain")
     }
 
     @Test

@@ -1,5 +1,6 @@
 package ir.gwent.android.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -29,6 +32,14 @@ import ir.gwent.core.model.*
  */
 val CardWidth = 48.dp
 val CardHeight = 66.dp
+
+/**
+ * How much of a board card's footprint is given over to the shadow it throws on the ground.
+ *
+ * The card body is shortened by this rather than the footprint being grown by it: four rows and
+ * a hand already share 411dp of height, so there is nothing spare to grow into.
+ */
+val ContactShadow = 5.dp
 val HandCardWidth = 66.dp
 val HandCardHeight = 94.dp
 
@@ -104,47 +115,67 @@ fun BoardCardView(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
-    Box(
-        modifier = Modifier
-            .size(CardWidth, CardHeight)
-            .clip(RoundedCornerShape(3.dp))
-            .background(cardArt(unit.card.faction))
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                brush = if (selected) MetalGold else frameBrush(unit.card.color),
-                shape = RoundedCornerShape(3.dp),
+    Box(modifier = Modifier.size(CardWidth, CardHeight), contentAlignment = Alignment.TopCenter) {
+        // A card standing on soil throws a shadow onto it. Without one the card reads as pasted
+        // over the ground rather than placed on it, which is most of what made the old board
+        // look like a form laid on black.
+        Canvas(Modifier.fillMaxSize()) {
+            val drop = ContactShadow.toPx()
+            drawOval(
+                brush = Brush.radialGradient(
+                    0.0f to Color(0xA8000000),
+                    0.6f to Color(0x52000000),
+                    1.0f to Color.Transparent,
+                    center = Offset(size.width * 0.5f, size.height - drop * 0.7f),
+                    radius = size.width * 0.66f,
+                ),
+                topLeft = Offset(-size.width * 0.12f, size.height - drop * 1.9f),
+                size = Size(size.width * 1.24f, drop * 2.1f),
             )
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
-    ) {
-        CardSigil(unit.card, Modifier.fillMaxSize())
-        PowerGem(unit.power, unit.basePower, 21.dp)
-
-        if (unit.armor > 0) {
-            Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) { ArmorPip(unit.armor, 15.dp) }
         }
 
-        Row(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 13.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            unit.statuses.keys.mapNotNull { statusGlyph(it) }.take(4).forEach { (glyph, tint) ->
-                Text(glyph, style = CardName.copy(color = tint, fontSize = 8.sp))
-            }
-        }
-
-        Text(
-            text = unit.card.name,
-            style = CardName.copy(fontSize = 7.sp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            lineHeight = 8.sp,
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(NamePlate)
-                .padding(horizontal = 1.dp, vertical = 1.dp),
-        )
+                .size(CardWidth, CardHeight - ContactShadow)
+                .clip(RoundedCornerShape(3.dp))
+                .background(cardArt(unit.card.faction))
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    brush = if (selected) MetalGold else frameBrush(unit.card.color),
+                    shape = RoundedCornerShape(3.dp),
+                )
+                .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
+        ) {
+            CardSigil(unit.card, Modifier.fillMaxSize())
+            PowerGem(unit.power, unit.basePower, 21.dp)
+
+            if (unit.armor > 0) {
+                Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) { ArmorPip(unit.armor, 15.dp) }
+            }
+
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 13.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                unit.statuses.keys.mapNotNull { statusGlyph(it) }.take(4).forEach { (glyph, tint) ->
+                    Text(glyph, style = CardName.copy(color = tint, fontSize = 8.sp))
+                }
+            }
+
+            Text(
+                text = unit.card.name,
+                style = CardName.copy(fontSize = 7.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                lineHeight = 8.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(NamePlate)
+                    .padding(horizontal = 1.dp, vertical = 1.dp),
+            )
+        }
     }
 }
 
