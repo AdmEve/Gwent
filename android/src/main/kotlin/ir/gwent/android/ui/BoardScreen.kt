@@ -186,9 +186,15 @@ private fun RowScoreShield(score: Int, row: Row, effect: RowEffectKind?) {
         )
         Text(score.toString(), style = ScoreNumeral.copy(fontSize = 16.sp, color = GoldMuted))
         if (effect != null) {
+            // A glyph rather than a clipped word: "FROS" told the player nothing.
             Text(
-                effect.name.take(4),
-                style = CardName.copy(color = Color(0xFF79C4E0), fontSize = 6.sp),
+                when (effect) {
+                    RowEffectKind.FOG -> "\u2591"
+                    RowEffectKind.FROST -> "\u2744"
+                    RowEffectKind.RAIN -> "\u2614"
+                    RowEffectKind.STORM -> "\u26A1"
+                },
+                style = CardName.copy(color = Color(0xFF79C4E0), fontSize = 11.sp),
             )
         }
     }
