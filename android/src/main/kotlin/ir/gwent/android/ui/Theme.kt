@@ -59,6 +59,55 @@ fun frameBrush(color: CardColor): Brush = when (color) {
     CardColor.BRONZE -> MetalBronze
 }
 
+
+// --- board surfaces ---------------------------------------------------------
+/*
+ * The real game's board is a lit place — a forest floor or a stone path — with warm light in
+ * the middle and darkness at the edges. Flat black reads as a debug screen, so the board is
+ * built from layered gradients: a warm ground, a vignette, and banded terrain for the rows.
+ */
+
+/** The battlefield ground: warm and lit through the centre, falling away at the edges. */
+val BoardGround = Brush.verticalGradient(
+    0.00f to Color(0xFF0A0906),
+    0.18f to Color(0xFF17130B),
+    0.50f to Color(0xFF241D10),
+    0.82f to Color(0xFF17130B),
+    1.00f to Color(0xFF0A0906),
+)
+
+/** Darkens the corners so the eye is pulled to the centre of the board. */
+val BoardVignette = Brush.radialGradient(
+    0.0f to Color.Transparent,
+    0.55f to Color(0x00000000),
+    1.0f to Color(0xCC000000),
+)
+
+/** A row of terrain. The player's own rows sit slightly warmer than the opponent's. */
+fun rowBand(mine: Boolean): Brush = if (mine) {
+    Brush.verticalGradient(listOf(Color(0xFF241C10), Color(0xFF1A150C), Color(0xFF241C10)))
+} else {
+    Brush.verticalGradient(listOf(Color(0xFF1E1810), Color(0xFF15110A), Color(0xFF1E1810)))
+}
+
+/** A row lit up because the selected card can be dropped on it. */
+val RowBandLit = Brush.verticalGradient(
+    listOf(Color(0xFF3A2E14), Color(0xFF2A2110), Color(0xFF3A2E14)),
+)
+
+/** Stand-in for card art: a lit figure-ground in the faction's colour. */
+fun cardArt(faction: Faction): Brush {
+    val p = factionPalette(faction)
+    return Brush.radialGradient(
+        0.0f to p.glow.copy(alpha = 0.34f),
+        0.45f to p.accent.copy(alpha = 0.26f),
+        1.0f to p.deep.copy(alpha = 0.95f),
+    )
+}
+
+/** The name plate at the foot of a card. */
+val NamePlate = Brush.verticalGradient(listOf(Color(0xCC0A0806), Color(0xF20A0806)))
+
 class FactionPalette(val accent: Color, val deep: Color, val glow: Color)
 
 fun factionPalette(faction: Faction): FactionPalette = when (faction) {

@@ -5,9 +5,16 @@
         android:allowBackup="true"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.Material.NoActionBar">
+        <!--
+            GWENT is a landscape game: four rows plus a hand simply do not fit a phone held
+            upright. Locking the orientation here is what makes the board layout valid — without
+            it the activity inherits portrait and the whole board is crushed into a strip.
+        -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
