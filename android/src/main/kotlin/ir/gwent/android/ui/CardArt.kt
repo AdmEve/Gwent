@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import ir.gwent.core.model.Card
 import ir.gwent.core.model.CardColor
 import ir.gwent.core.model.CardType
@@ -42,8 +43,31 @@ enum class ArtMotif {
     FLASK,      // alchemy, organic, potions
 }
 
-/** Pick the motif that best describes a card, most specific tag first. */
+/**
+ * Art direction, per card.
+ *
+ * Inference from tags gets most cards right, but not all: an archer is tagged Human and Soldier
+ * like any infantryman, so tag order alone drew it a sword. Anything whose subject the tags do
+ * not capture is named here explicitly — this map is the art director's override, and it wins.
+ */
+private val EXPLICIT: Map<String, ArtMotif> = mapOf(
+    "neu_archer" to ArtMotif.BOW,          // Crossbowman — a bow, not a blade
+    "sco_dryad" to ArtMotif.BOW,           // Dryad Ranger
+    "nor_ballista" to ArtMotif.BOW,        // Siege Ballista is a bow the size of a cart
+    "nor_trebuchet" to ArtMotif.GEAR,
+    "neu_medic" to ArtMotif.FLASK,         // Field Medic tends wounds, not swings
+    "nil_spy" to ArtMotif.COIN,            // Imperial Informant deals in secrets sold
+    "nil_bribery" to ArtMotif.COIN,
+    "ske_priestess" to ArtMotif.ARCANE,
+    "mon_harpy" to ArtMotif.FANG,
+    "neu_scorch" to ArtMotif.ARCANE,
+    "neu_alzurs_thunder" to ArtMotif.ARCANE,
+    "neu_swallow" to ArtMotif.FLASK,
+)
+
+/** Pick the motif for a card: the explicit override first, then inference from tags. */
 fun motifFor(card: Card): ArtMotif {
+    EXPLICIT[card.id]?.let { return it }
     val t = card.tags
     return when {
         Tag.SIEGE_ENGINE in t || Tag.MACHINE in t -> ArtMotif.GEAR
@@ -57,6 +81,8 @@ fun motifFor(card: Card): ArtMotif {
         Tag.BEAST in t || Tag.INSECTOID in t || Tag.VAMPIRE in t ||
             Tag.DRACONID in t || Tag.OGROID in t || Tag.RELICT in t -> ArtMotif.FANG
         card.type == CardType.SPECIAL -> ArtMotif.ARCANE
+        // A card that only ever acts from the ranged row is an archer, whatever else it is.
+        card.abilities.any { it.row == ir.gwent.core.model.Row.RANGED } -> ArtMotif.BOW
         card.armor > 0 -> ArtMotif.SHIELD
         Tag.ELF in t || Tag.DWARF in t -> ArtMotif.BOW
         Tag.SOLDIER in t || Tag.HUMAN in t || Tag.WITCHER in t -> ArtMotif.SWORD
@@ -244,9 +270,11 @@ private fun motifPath(motif: ArtMotif, w: Float, h: Float): Path {
 }
 
 /** Draws the motif twice: a soft glow beneath, a crisp stroke on top. */
-private fun DrawScope.drawMotif(motif: ArtMotif, tint: Color, glow: Color, area: Size, top: Float) {
+private fun DrawScope.drawMotif(
+    motif: ArtMotif, tint: Color, glow: Color, area: Size, top: Float, left: Float = 0f,
+) {
     val path = motifPath(motif, area.width, area.height)
-    translate(0f, top) {
+    translate(left, top) {
         drawPath(path, color = glow.copy(alpha = 0.22f), style = Stroke(width = 3.2f))
         drawPath(path, color = tint.copy(alpha = 0.85f), style = Stroke(width = 1.1f))
     }
@@ -268,10 +296,15 @@ fun CardSigil(card: Card, modifier: Modifier = Modifier) {
     val palette = factionPalette(card.faction)
     val motif = motifFor(card)
 
+    // A stable per-card jitter: two Hired Blades should not be pixel-identical stamps.
+    val seed = card.id.fold(17) { a, c -> a * 31 + c.code }
+    val tilt = ((seed ushr 4) and 0xF) / 15f * 10f - 5f      // -5..+5 degrees
+    val scale = 0.94f + ((seed ushr 9) and 0xF) / 15f * 0.12f // 0.94..1.06
+
     Canvas(modifier = modifier) {
         // The subject occupies the top ~72% of the card; the rest is name plate.
         val artH = size.height * 0.72f
-        val area = Size(size.width, artH)
+        val area = Size(size.width * scale, artH * scale)
 
         // A pool of light behind the subject, so it reads as lit rather than flat.
         drawCircle(
@@ -284,7 +317,10 @@ fun CardSigil(card: Card, modifier: Modifier = Modifier) {
             center = Offset(size.width / 2f, artH * 0.52f),
         )
 
-        drawMotif(motif, palette.glow, palette.accent, area, top = artH * 0.04f)
+        val dx = (size.width - area.width) / 2f
+        rotate(tilt, pivot = Offset(size.width / 2f, artH * 0.5f)) {
+            drawMotif(motif, palette.glow, palette.accent, area, top = artH * 0.04f, left = dx)
+        }
 
         // Golds carry a wash of light across the top edge, as gold cards do in the real game.
         if (card.color == CardColor.GOLD) {
