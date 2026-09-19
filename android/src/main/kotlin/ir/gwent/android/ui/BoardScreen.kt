@@ -69,30 +69,39 @@ fun BoardScreen(
                 LeaderPanel(me, engine, enabled = state.turn == Side.A && !state.matchOver)
             }
 
-            // ---- the rows ----------------------------------------------------
-            Column(
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(vertical = 3.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                BoardRow(them, Row.RANGED, engine, selectedHand, selectedTarget,
-                    onTarget = { selectedTarget = it }, mine = false, tag = "opp-ranged")
-                BoardRow(them, Row.MELEE, engine, selectedHand, selectedTarget,
-                    onTarget = { selectedTarget = it }, mine = false, tag = "opp-melee")
+            Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(vertical = 3.dp)) {
+                // The playing field is a centred column, not the full width: nine cards at 48dp
+                // is ~470dp, so a wider band only ever adds empty ground either side. The hand
+                // below stays full width, because ten cards need more room than the field does.
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        modifier = Modifier.widthIn(max = 520.dp).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        BoardRow(them, Row.RANGED, engine, selectedHand, selectedTarget,
+                            onTarget = { selectedTarget = it }, mine = false, tag = "opp-ranged")
+                        BoardRow(them, Row.MELEE, engine, selectedHand, selectedTarget,
+                            onTarget = { selectedTarget = it }, mine = false, tag = "opp-melee")
 
-                CentreLine(state)
+                        CentreLine(state)
 
-                BoardRow(me, Row.MELEE, engine, selectedHand, selectedTarget,
-                    onTarget = { selectedTarget = it }, mine = true, tag = "my-melee",
-                    onPlay = { r ->
-                        playSelected(engine, selectedHand, r, selectedTarget)
-                            .also { if (it) { selectedHand = null; selectedTarget = null } }
-                    })
-                BoardRow(me, Row.RANGED, engine, selectedHand, selectedTarget,
-                    onTarget = { selectedTarget = it }, mine = true, tag = "my-ranged",
-                    onPlay = { r ->
-                        playSelected(engine, selectedHand, r, selectedTarget)
-                            .also { if (it) { selectedHand = null; selectedTarget = null } }
-                    })
+                        BoardRow(me, Row.MELEE, engine, selectedHand, selectedTarget,
+                            onTarget = { selectedTarget = it }, mine = true, tag = "my-melee",
+                            onPlay = { r ->
+                                playSelected(engine, selectedHand, r, selectedTarget)
+                                    .also { if (it) { selectedHand = null; selectedTarget = null } }
+                            })
+                        BoardRow(me, Row.RANGED, engine, selectedHand, selectedTarget,
+                            onTarget = { selectedTarget = it }, mine = true, tag = "my-ranged",
+                            onPlay = { r ->
+                                playSelected(engine, selectedHand, r, selectedTarget)
+                                    .also { if (it) { selectedHand = null; selectedTarget = null } }
+                            })
+                    }
+                }
 
                 // ---- hand ----------------------------------------------------
                 LazyRow(

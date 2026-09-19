@@ -1,6 +1,5 @@
 package ir.gwent.android.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,8 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -229,72 +226,5 @@ fun PileView(count: Int, label: String, width: Dp = 26.dp, height: Dp = 36.dp) {
             Text(count.toString(), style = PowerNumeral.copy(fontSize = 12.sp, color = GoldMuted))
         }
         Text(label, style = CardName.copy(fontSize = 6.sp, color = MutedText))
-    }
-}
-
-/**
- * Procedural card art.
- *
- * The real game gives every card a commissioned illustration. With no artwork to draw on, a blank
- * frame reads as unfinished, so each card instead gets an emblem derived deterministically from
- * its id: the same card always produces the same sigil, and different cards look different. It is
- * a stand-in, not a substitute — but it gives the board the texture of real cards.
- */
-@Composable
-fun CardSigil(card: Card, modifier: Modifier = Modifier) {
-    val palette = factionPalette(card.faction)
-    // A stable per-card seed; kotlin's hashCode is stable for a given String within a run and
-    // across runs for the same literal, which is all the determinism this needs.
-    val seed = card.id.fold(7) { acc, c -> acc * 31 + c.code }
-    val rings = 2 + (seed ushr 3 and 0x3)
-    val spokes = 5 + (seed ushr 7 and 0x7)
-    val tilt = (seed ushr 11 and 0x3F) / 63f * 360f
-
-    Canvas(modifier = modifier) {
-        val cx = size.width / 2f
-        val cy = size.height * 0.42f
-        val r = minOf(size.width, size.height) * 0.30f
-
-        // Radiating spokes, like the engraved sigils on GWENT's card backs.
-        repeat(spokes) { i ->
-            val a = Math.toRadians((tilt + i * 360f / spokes).toDouble())
-            drawLine(
-                color = palette.glow.copy(alpha = 0.30f),
-                start = Offset(cx + (r * 0.35f * kotlin.math.cos(a)).toFloat(),
-                               cy + (r * 0.35f * kotlin.math.sin(a)).toFloat()),
-                end = Offset(cx + (r * 1.15f * kotlin.math.cos(a)).toFloat(),
-                             cy + (r * 1.15f * kotlin.math.sin(a)).toFloat()),
-                strokeWidth = 1.2f,
-            )
-        }
-        // Concentric rings.
-        repeat(rings) { i ->
-            drawCircle(
-                color = palette.glow.copy(alpha = 0.22f - i * 0.04f),
-                radius = r * (0.45f + i * 0.28f),
-                center = Offset(cx, cy),
-                style = Stroke(width = 1.1f),
-            )
-        }
-        // A solid core so the card has a focal point.
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(palette.glow.copy(alpha = 0.55f), Color.Transparent),
-                center = Offset(cx, cy),
-                radius = r * 0.9f,
-            ),
-            radius = r * 0.9f,
-            center = Offset(cx, cy),
-        )
-        // Gold cards get a crown of light along the top edge.
-        if (card.color == CardColor.GOLD) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    listOf(GoldLight.copy(alpha = 0.30f), Color.Transparent),
-                    startY = 0f, endY = size.height * 0.4f,
-                ),
-                size = size,
-            )
-        }
     }
 }
