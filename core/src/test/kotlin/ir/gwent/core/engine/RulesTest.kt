@@ -261,7 +261,7 @@ class RulesTest {
     fun `a full match terminates and someone reaches two crowns`() {
         repeat(20) { seed ->
             val e = engine(seed.toLong())
-            val ai = mapOf(Side.A to ir.gwent.core.ai.SimpleAi(Side.A), Side.B to ir.gwent.core.ai.SimpleAi(Side.B))
+            val ai = mapOf(Side.A to ir.gwent.core.ai.TacticalAi(Side.A), Side.B to ir.gwent.core.ai.TacticalAi(Side.B))
             ai.values.forEach { it.mulligan(e) }
             var guard = 0
             while (!e.state.matchOver && guard++ < 3000) {

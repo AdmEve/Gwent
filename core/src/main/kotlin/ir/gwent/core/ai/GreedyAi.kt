@@ -5,14 +5,16 @@ import ir.gwent.core.engine.GameEngine
 import ir.gwent.core.model.*
 
 /**
- * A deliberately modest opponent: it plays for points, uses removal on the biggest threat, and
- * knows the one strategic rule that matters most in GWENT — do not keep spending cards into a
- * round you have already lost.
+ * The baseline opponent: it plays for points, uses removal on the biggest threat, and knows the
+ * one strategic rule that matters most in GWENT — do not keep spending cards into a round you
+ * have already lost.
+ *
+ * Kept deliberately after [TacticalAi] superseded it, as the yardstick a stronger AI has to beat.
  */
-class SimpleAi(private val side: Side) {
+class GreedyAi(private val side: Side) : Ai {
 
     /** Decide and perform the next action. Returns false when the AI has finished its turn. */
-    fun takeTurn(engine: GameEngine): Boolean {
+    override fun takeTurn(engine: GameEngine): Boolean {
         val state = engine.state
         if (state.matchOver || state.turn != side) return false
         val me = state.player(side)
@@ -115,7 +117,7 @@ class SimpleAi(private val side: Side) {
     }
 
     /** Throw back the weakest cards while mulligans remain. */
-    fun mulligan(engine: GameEngine) {
+    override fun mulligan(engine: GameEngine) {
         val me = engine.state.player(side)
         while (me.mulligansLeft > 0) {
             val worst = me.hand.indices.minByOrNull { me.hand[it].basePower } ?: break

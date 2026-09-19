@@ -12,7 +12,7 @@ import ir.gwent.android.ui.DeckBuilderScreen
 import ir.gwent.android.ui.FactionPickerScreen
 import ir.gwent.android.ui.GwentTheme
 import ir.gwent.android.ui.MulliganScreen
-import ir.gwent.core.ai.SimpleAi
+import ir.gwent.core.ai.TacticalAi
 import ir.gwent.core.engine.GameEngine
 import ir.gwent.core.model.CardDatabase
 import ir.gwent.core.model.Deck
@@ -36,7 +36,7 @@ private enum class Phase { PICK, BUILD, MULLIGAN, BOARD }
 fun AppRoot() {
     var phase by remember { mutableStateOf(Phase.PICK) }
     var engine by remember { mutableStateOf<GameEngine?>(null) }
-    var opponent by remember { mutableStateOf<SimpleAi?>(null) }
+    var opponent by remember { mutableStateOf<TacticalAi?>(null) }
     // The engine mutates in place, so the board needs an explicit nudge to recompose.
     var revision by remember { mutableIntStateOf(0) }
 
@@ -61,7 +61,7 @@ fun AppRoot() {
                         deck,
                         CardDatabase.starterDeck(theirLeader ?: mine),
                     )
-                    val ai = SimpleAi(Side.B)
+                    val ai = TacticalAi(Side.B)
                     ai.mulligan(e)
                     engine = e
                     opponent = ai
@@ -98,7 +98,7 @@ fun AppRoot() {
 }
 
 /** Runs the AI while it is its turn. Returns true if anything happened. */
-private fun runOpponent(engine: GameEngine, ai: SimpleAi?): Boolean {
+private fun runOpponent(engine: GameEngine, ai: TacticalAi?): Boolean {
     if (ai == null) return false
     var acted = false
     var guard = 0

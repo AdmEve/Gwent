@@ -1,6 +1,6 @@
 package ir.gwent.core.cli
 
-import ir.gwent.core.ai.SimpleAi
+import ir.gwent.core.ai.TacticalAi
 import ir.gwent.core.engine.Action
 import ir.gwent.core.engine.GameEngine
 import ir.gwent.core.model.*
@@ -32,8 +32,8 @@ fun main(args: Array<String>) {
     println()
 
     val engine = GameEngine.start(deckA, deckB, rng)
-    val aiA = SimpleAi(Side.A)
-    val aiB = SimpleAi(Side.B)
+    val aiA = TacticalAi(Side.A)
+    val aiB = TacticalAi(Side.B)
     aiA.mulligan(engine)
     aiB.mulligan(engine)
     println("first move: ${engine.state.starter}")
