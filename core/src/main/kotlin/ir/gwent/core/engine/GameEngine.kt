@@ -226,12 +226,72 @@ class GameEngine(val state: GameState) {
             Effect.Banish -> target?.let { banish(it) }
             is Effect.Apply -> (target ?: self)?.let { applyStatus(it, effect.status, effect.duration) }
             Effect.Purify -> (target ?: self)?.purify()
-            is Effect.Summon -> Unit // resolved by CardDatabase-aware callers
+            is Effect.Summon -> summon(actor, effect.cardId, rowOf(self) ?: Row.MELEE)
+            Effect.Consume -> consume(actor, target, self)
+            Effect.Resurrect -> resurrect(actor, rowOf(self) ?: Row.MELEE)
+            Effect.Move -> target?.let { moveToOtherRow(it) }
             is Effect.Draw -> repeat(effect.count) { drawOne(actor) }
             is Effect.Profit -> actor.addCoins(effect.amount)
             Effect.None -> Unit
         }
         cleanupDead()
+    }
+
+    /** Which row a unit is standing on, or null if it is not on the board. */
+    private fun rowOf(unit: UnitInstance?): Row? {
+        if (unit == null) return null
+        listOf(state.playerA, state.playerB).forEach { p ->
+            p.rows.forEach { (row, units) -> if (units.contains(unit)) return row }
+        }
+        return null
+    }
+
+    /** Put a card on the board without playing it: no Deploy, and the row cap still applies. */
+    private fun place(player: PlayerState, card: Card, row: Row): UnitInstance? {
+        if (!player.rowHasSpace(row)) return null
+        val unit = UnitInstance(card, state.allocateUid())
+        player.rows.getValue(row) += unit
+        return unit
+    }
+
+    /**
+     * Summon by id: prefer a copy already in the deck, so summoning thins it as the real game
+     * does; fall back to spawning a fresh copy when the deck has none left.
+     */
+    private fun summon(player: PlayerState, cardId: String, row: Row) {
+        val fromDeck = player.deck.indexOfFirst { it.id == cardId }
+        val card = if (fromDeck >= 0) player.deck.removeAt(fromDeck) else CardDatabase.byId(cardId) ?: return
+        place(player, card, row)
+    }
+
+    /** Destroy an allied unit and take its power. Consuming the graveyard banishes instead. */
+    private fun consume(player: PlayerState, target: UnitInstance?, self: UnitInstance?) {
+        val eater = self ?: return
+        if (target != null && target !== eater) {
+            eater.boost(maxOf(target.power, 0))
+            target.power = 0
+            return
+        }
+        // Nothing on the board to eat: take the top of the graveyard instead, and banish it.
+        val corpse = player.graveyard.removeLastOrNull() ?: return
+        eater.boost(maxOf(corpse.basePower, 0))
+        player.banished += corpse
+    }
+
+    /** Return the strongest unit in the graveyard to the board. */
+    private fun resurrect(player: PlayerState, row: Row) {
+        val best = player.graveyard.filter { it.isUnit }.maxByOrNull { it.basePower } ?: return
+        player.graveyard.remove(best)
+        place(player, best, row)
+    }
+
+    private fun moveToOtherRow(unit: UnitInstance) {
+        val owner = owningPlayer(unit) ?: return
+        val from = rowOf(unit) ?: return
+        val to = from.other()
+        if (!owner.rowHasSpace(to)) return
+        owner.rows.getValue(from).remove(unit)
+        owner.rows.getValue(to) += unit
     }
 
     /** Poison destroys a unit that is already poisoned rather than stacking. */

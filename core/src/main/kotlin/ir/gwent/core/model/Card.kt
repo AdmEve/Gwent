@@ -144,8 +144,23 @@ sealed interface Effect {
     /** Strip every status from a card. */
     data object Purify : Effect
 
-    /** Put a specific card onto the board. Does not count as played. */
+    /**
+     * Put a specific card onto the board, taken from the deck if it is there and spawned as a
+     * fresh copy otherwise. Summoning does not count as playing, so it never fires Deploy.
+     */
     data class Summon(val cardId: String) : Effect
+
+    /**
+     * Destroy an allied unit and boost self by its power — the Monsters' signature. Consuming
+     * from the graveyard banishes the card instead of destroying it.
+     */
+    data object Consume : Effect
+
+    /** Play the strongest unit in your graveyard back onto the board — Skellige's signature. */
+    data object Resurrect : Effect
+
+    /** Move a unit to the other row on its own side. */
+    data object Move : Effect
 
     /** Draw cards from the top of the deck. */
     data class Draw(val count: Int) : Effect

@@ -139,3 +139,122 @@ class DeckBuilderTest {
         assertFalse(engine.state.matchOver)
     }
 }
+
+/**
+ * The signature effects. Summon was a no-op stub until now, so these exist to prove the
+ * implementations actually move cards rather than silently doing nothing.
+ */
+class SignatureEffectsTest {
+
+    private fun engine(seed: Long = 5L) = GameEngine.start(
+        CardDatabase.starterDeck(Leaders.CRACH),
+        CardDatabase.starterDeck(Leaders.DAGON),
+        kotlin.random.Random(seed),
+    )
+
+    @Test
+    fun `summon pulls a named card out of the deck onto the board`() {
+        val e = engine()
+        val p = e.state.playerA
+        val nekker = CardDatabase.byId("mon_nekker")!!
+        p.deck.add(0, nekker)
+        val deckBefore = p.deck.size
+        val onBoardBefore = p.units().size
+
+        // Mobilisation-style summon: resolve it through a played card's Deploy.
+        p.hand[0] = Card(
+            "test_summoner", "Summoner", Faction.NEUTRAL, CardType.SPECIAL, provisions = 4,
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Summon("mon_nekker"))),
+        )
+        e.state.turn = Side.A
+        assertNull(e.perform(Side.A, Action.PlayCard(0, Row.MELEE)))
+
+        assertEquals(onBoardBefore + 1, p.units().size, "summon should put a unit on the board")
+        assertEquals(deckBefore - 1, p.deck.size, "and take it out of the deck")
+        assertTrue(p.units().any { it.card.id == "mon_nekker" })
+    }
+
+    @Test
+    fun `consume destroys an ally and takes its power`() {
+        val e = engine()
+        val p = e.state.playerA
+        val food = UnitInstance(CardDatabase.byId("neu_militia")!!, e.state.allocateUid())
+        p.rows.getValue(Row.MELEE) += food
+        val foodPower = food.power
+
+        // The Griffin's own Deploy is Consume, so play it and point it at the meal.
+        val griffin = CardDatabase.byId("mon_griffin")!!
+        p.hand[0] = griffin
+        e.state.turn = Side.A
+        assertNull(e.perform(Side.A, Action.PlayCard(0, Row.MELEE, target = food.uid)))
+
+        val eater = p.units().first { it.card.id == "mon_griffin" }
+        assertEquals(griffin.basePower + foodPower, eater.power, "the eater grows by what it ate")
+        assertFalse(p.units().any { it.uid == food.uid }, "the meal is gone from the board")
+        assertTrue(p.graveyard.any { it.id == "neu_militia" }, "and lies in the graveyard")
+    }
+
+    @Test
+    fun `resurrect returns the strongest fallen unit to the board`() {
+        val e = engine()
+        val p = e.state.playerA
+        val weak = CardDatabase.byId("neu_militia")!!      // 4 power
+        val strong = CardDatabase.byId("neu_mercenary")!!  // 6 power
+        p.graveyard += weak
+        p.graveyard += strong
+        val graveBefore = p.graveyard.size
+
+        e.state.turn = Side.A
+        p.hand[0] = Card(
+            "test_raise", "Raise", Faction.NEUTRAL, CardType.SPECIAL, provisions = 4,
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Resurrect)),
+        )
+        assertNull(e.perform(Side.A, Action.PlayCard(0, Row.MELEE)))
+
+        // The played special lands in the graveyard itself once it has resolved, so the count
+        // nets out. Assert on which card moved, not on how many are there.
+        assertTrue(
+            p.units().any { it.card.id == strong.id },
+            "the strongest fallen unit is the one raised",
+        )
+        assertFalse(p.graveyard.any { it.id == strong.id }, "and it left the graveyard")
+        assertTrue(p.graveyard.any { it.id == weak.id }, "the weaker corpse stays put")
+        assertTrue(p.graveyard.any { it.id == "test_raise" }, "the spell itself is spent")
+        assertEquals(graveBefore, p.graveyard.size, "one out, the spent spell in")
+    }
+
+    @Test
+    fun `move sends a unit to the other row`() {
+        val e = engine()
+        val p = e.state.playerA
+        val unit = UnitInstance(CardDatabase.byId("neu_militia")!!, e.state.allocateUid())
+        p.rows.getValue(Row.MELEE) += unit
+        assertEquals(1, p.rows.getValue(Row.MELEE).size)
+
+        e.state.turn = Side.A
+        p.hand[0] = Card(
+            "test_move", "Reposition", Faction.NEUTRAL, CardType.SPECIAL, provisions = 4,
+            abilities = listOf(Ability(Trigger.DEPLOY, Effect.Move)),
+        )
+        assertNull(e.perform(Side.A, Action.PlayCard(0, Row.MELEE, target = unit.uid)))
+
+        assertEquals(0, p.rows.getValue(Row.MELEE).size, "it left the melee row")
+        assertEquals(1, p.rows.getValue(Row.RANGED).size, "and arrived on the ranged row")
+    }
+
+    @Test
+    fun `the expanded pool still builds legal decks for every leader`() {
+        Leaders.ALL.forEach { leader ->
+            val d = CardDatabase.starterDeck(leader)
+            assertTrue(d.validate().isEmpty(), "${leader.name}: ${d.validate()}")
+        }
+    }
+
+    @Test
+    fun `the pool offers enough cards for deck building to be a choice`() {
+        Leaders.PLAYABLE_FACTIONS.forEach { faction ->
+            val options = CardDatabase.forFaction(faction)
+            assertTrue(options.size >= 20, "$faction has only ${options.size} cards to choose from")
+        }
+    }
+}
