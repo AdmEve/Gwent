@@ -40,6 +40,10 @@ fun BoardScreen(
     val state = engine.state
     var selectedHand by remember { mutableStateOf<Int?>(null) }
     var selectedTarget by remember { mutableStateOf<Int?>(null) }
+    // The card being inspected, and the unit whose Order is armed and awaiting a target.
+    var inspectedCard by remember { mutableStateOf<Card?>(null) }
+    var inspectedUnit by remember { mutableStateOf<UnitInstance?>(null) }
+    var pendingOrder by remember { mutableStateOf<Int?>(null) }
     @Suppress("UNUSED_EXPRESSION") revision
 
     val me = state.playerA
@@ -82,20 +86,36 @@ fun BoardScreen(
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         BoardRow(them, Row.RANGED, engine, selectedHand, selectedTarget,
-                            onTarget = { selectedTarget = it }, mine = false, tag = "opp-ranged")
+                            onTarget = { uid -> onUnitTapped(engine, them, uid, pendingOrder,
+                                fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
+                                inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
+                                select = { selectedTarget = it }) },
+                            mine = false, tag = "opp-ranged")
                         BoardRow(them, Row.MELEE, engine, selectedHand, selectedTarget,
-                            onTarget = { selectedTarget = it }, mine = false, tag = "opp-melee")
+                            onTarget = { uid -> onUnitTapped(engine, them, uid, pendingOrder,
+                                fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
+                                inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
+                                select = { selectedTarget = it }) },
+                            mine = false, tag = "opp-melee")
 
                         CentreLine(state)
 
                         BoardRow(me, Row.MELEE, engine, selectedHand, selectedTarget,
-                            onTarget = { selectedTarget = it }, mine = true, tag = "my-melee",
+                            onTarget = { uid -> onUnitTapped(engine, me, uid, pendingOrder,
+                                fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
+                                inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
+                                select = { selectedTarget = it }) },
+                            mine = true, tag = "my-melee",
                             onPlay = { r ->
                                 playSelected(engine, selectedHand, r, selectedTarget)
                                     .also { if (it) { selectedHand = null; selectedTarget = null } }
                             })
                         BoardRow(me, Row.RANGED, engine, selectedHand, selectedTarget,
-                            onTarget = { selectedTarget = it }, mine = true, tag = "my-ranged",
+                            onTarget = { uid -> onUnitTapped(engine, me, uid, pendingOrder,
+                                fire = { o, t -> engine.perform(Side.A, Action.UseOrder(o, t)); pendingOrder = null },
+                                inspect = { c, u -> inspectedCard = c; inspectedUnit = u },
+                                select = { selectedTarget = it }) },
+                            mine = true, tag = "my-ranged",
                             onPlay = { r ->
                                 playSelected(engine, selectedHand, r, selectedTarget)
                                     .also { if (it) { selectedHand = null; selectedTarget = null } }
@@ -115,7 +135,15 @@ fun BoardScreen(
                             card = me.hand[i],
                             selected = selectedHand == i,
                             playable = state.turn == Side.A && !state.matchOver,
-                            onClick = { selectedHand = if (selectedHand == i) null else i },
+                            // First tap selects the card to play; tapping the selected card
+                            // again opens the inspector, so its text is always one tap away.
+                            onClick = {
+                                if (selectedHand == i) {
+                                    inspectedCard = me.hand[i]; inspectedUnit = null
+                                } else {
+                                    selectedHand = i
+                                }
+                            },
                         )
                     }
                 }
@@ -123,7 +151,74 @@ fun BoardScreen(
 
             ScoreRail(engine, onExit = onExit)
         }
+
+        // A banner while an Order is armed, so the player knows a target is expected.
+        if (pendingOrder != null) {
+            Box(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 3.dp)
+                    .background(Color(0xE62A2210), RoundedCornerShape(3.dp))
+                    .border(1.dp, GoldBright, RoundedCornerShape(3.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            ) {
+                Text("CHOOSE A TARGET — tap again to cancel", style = SectionTitle.copy(fontSize = 9.sp))
+            }
+        }
+
+        inspectedCard?.let { card ->
+            val unit = inspectedUnit
+            val order = unit?.card?.abilities?.firstOrNull { it.trigger == Trigger.ORDER }
+            val mine = unit != null && me.units().any { it.uid == unit.uid }
+            val ready = unit != null && mine && order != null &&
+                unit.orderReady && unit.charges > 0 && unit.cooldownLeft == 0 &&
+                state.turn == Side.A && !state.matchOver
+            CardDetailPanel(
+                card = card,
+                unit = unit,
+                canUseOrder = ready,
+                onUseOrder = {
+                    // Effects that need no target fire at once; the rest arm and wait for one.
+                    if (order != null && needsTarget(order.effect)) {
+                        pendingOrder = unit!!.uid
+                    } else {
+                        engine.perform(Side.A, Action.UseOrder(unit!!.uid))
+                    }
+                    inspectedCard = null; inspectedUnit = null
+                },
+                onDismiss = { inspectedCard = null; inspectedUnit = null },
+            )
+        }
     }
+}
+
+/**
+ * A tap on a board unit means one of three things: fire an armed Order at it, pick it as the
+ * target for the card in hand, or ask what it is.
+ */
+private fun onUnitTapped(
+    engine: GameEngine,
+    owner: PlayerState,
+    uid: Int?,
+    pendingOrder: Int?,
+    fire: (Int, Int?) -> Unit,
+    inspect: (Card, UnitInstance?) -> Unit,
+    select: (Int?) -> Unit,
+) {
+    val unit = uid?.let { u -> owner.units().firstOrNull { it.uid == u } }
+    when {
+        uid == null -> select(null)
+        pendingOrder != null -> fire(pendingOrder, uid)
+        unit != null -> { select(uid); inspect(unit.card, unit) }
+        else -> select(uid)
+    }
+}
+
+/** Whether an effect needs something pointed at before it can resolve. */
+private fun needsTarget(effect: Effect): Boolean = when (effect) {
+    is Effect.Damage, Effect.Destroy, Effect.Banish, Effect.Move,
+    is Effect.Apply, Effect.Purify, Effect.Reset, is Effect.Boost,
+    is Effect.Strengthen, is Effect.Heal, Effect.Consume,
+    -> true
+    else -> false
 }
 
 private fun playSelected(engine: GameEngine, hand: Int?, row: Row, target: Int?): Boolean {

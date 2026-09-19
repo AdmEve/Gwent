@@ -144,6 +144,19 @@ class ScreenshotTest {
     }
 
     @Test
+    fun `04b card detail`() {
+        val card = CardDatabase.byId("nor_ballista")!!
+        val unit = UnitInstance(card, 1)
+        unit.apply(Status.SHIELD)
+        unit.apply(Status.VITALITY, 3)
+        unit.boost(2)
+        show {
+            CardDetailPanel(card = card, unit = unit, canUseOrder = true, onUseOrder = {}) {}
+        }
+        shoot("04b-card-detail")
+    }
+
+    @Test
     fun `05 full row`() {
         val e = engine()
         val me = e.state.playerA
